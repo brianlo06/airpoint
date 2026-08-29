@@ -11,6 +11,14 @@ public protocol InputExecutor: AnyObject {
     /// True when the OS will actually accept synthesised events.
     var hasPermission: Bool { get }
 
+    /// Raises the system Accessibility prompt. Called only from an explicit user action
+    /// (`--selftest`), never at startup: an unexpected permission dialog from a process the
+    /// user did not knowingly point at this is exactly the pattern this app must not have.
+    /// Its real value is that the prompt registers the binary in System Settings, so the
+    /// user can tick a checkbox instead of hunting for a path inside .build/.
+    @discardableResult
+    func requestPermission() -> Bool
+
     func moveCursor(dx: Double, dy: Double)
     func click(button: MouseButton, count: Int)
     func beginDrag(button: MouseButton)
@@ -51,6 +59,9 @@ public final class RecordingExecutor: InputExecutor {
     public var hasPermission: Bool { true }
 
     public init() {}
+
+    @discardableResult
+    public func requestPermission() -> Bool { true }
 
     public func moveCursor(dx: Double, dy: Double) { commands.append(.move(dx: dx, dy: dy)) }
     public func click(button: MouseButton, count: Int) { commands.append(.click(button: button, count: count)) }

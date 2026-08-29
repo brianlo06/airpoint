@@ -42,7 +42,13 @@ public enum Limits {
     public static let maxDragDuration: TimeInterval = 30
 
     /// Pairing code validity and lockout policy.
-    public static let pairingCodeTTL: TimeInterval = 90
+    ///
+    /// 5 minutes, not 90 seconds. First-time pairing requires the user to tap through a
+    /// certificate interstitial, grant motion permission, and approve on the Mac — a 90
+    /// second window expires mid-flow almost every time, and the failure looks like a
+    /// wrong code rather than a timeout. The security argument is unaffected: the code is
+    /// still single-use, still rate-limited to 5 attempts, and a human still has to approve.
+    public static let pairingCodeTTL: TimeInterval = 300
     public static let pairingApprovalTimeout: TimeInterval = 60
     public static let maxPairingAttempts = 5
     public static let pairingLockout: TimeInterval = 15 * 60

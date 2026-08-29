@@ -72,6 +72,21 @@ do {
 printConnectionBanner(config: config, identity: identity, pairing: pairing,
                       subjectNames: subjectNames, executor: executor)
 
+// A code printed once goes stale while the user is still tapping through the certificate
+// warning, and the resulting failure looks like "wrong code" rather than "expired". Reprint
+// whenever it rotates, so whatever is on screen is always usable.
+var lastPrintedCode = pairing.currentSecret().displayCode
+let codeWatcher = DispatchSource.makeTimerSource(queue: .global())
+codeWatcher.schedule(deadline: .now() + 5, repeating: 5)
+codeWatcher.setEventHandler {
+    guard server.connectedDeviceName == nil else { return }
+    let secret = pairing.currentSecret()
+    guard secret.displayCode != lastPrintedCode else { return }
+    lastPrintedCode = secret.displayCode
+    printPairingCode(config: config, identity: identity, secret: secret, subjectNames: subjectNames)
+}
+codeWatcher.resume()
+
 // MARK: - Signals
 
 // Ctrl-C must release anything held. A stuck mouse button surviving the daemon would leave
@@ -147,6 +162,20 @@ func printConnectionBanner(config: Config, identity: TLSIdentity.Loaded,
     FileHandle.standardError.write(Data(banner.utf8))
 }
 
+/// Reprints just the code and QR, without the full first-run banner.
+func printPairingCode(config: Config, identity: TLSIdentity.Loaded,
+                      secret: PairingSecret, subjectNames: [String]) {
+    let host = subjectNames.first ?? "127.0.0.1"
+    let url = secret.pairingURL(host: host, port: config.port,
+                                fingerprint: identity.certificateFingerprint)
+    var out = "\n──────────────────────────────────────────\n"
+    out += "The previous pairing code expired.\n\n"
+    out += "    https://\(host):\(config.port)\n\n"
+    out += "New pairing code:  \(secret.displayCode)   (valid \(secret.remainingSeconds())s)\n\n"
+    if let qr = QRCode.terminalString(for: url) { out += qr + "\n" }
+    FileHandle.standardError.write(Data(out.utf8))
+}
+
 /// Moves the cursor in a square and reports whether it actually moved.
 ///
 /// This is the fastest way to answer the single most common setup question: "is the
@@ -164,8 +193,19 @@ func runSelfTest(executor: InputExecutor) -> Int32 {
         print("""
 
           Accessibility permission is missing, so no events can be posted.
-          Grant it in System Settings ▸ Privacy & Security ▸ Accessibility (add the
-          airpointd binary), then run this again.
+          Asking macOS to show the permission prompt now…
+        """)
+        // The prompt's side effect is the useful part: it registers this binary in
+        // System Settings, so the entry is there to switch on rather than having to
+        // locate a path inside .build/ by hand.
+        executor.requestPermission()
+        print("""
+          1. In the dialog, choose "Open System Settings".
+          2. Turn on the switch next to "airpointd".
+          3. Run this command again — macOS binds the permission to the exact binary,
+             so it must be re-checked after every rebuild.
+
+          Binary: \(CommandLine.arguments.first.map { URL(fileURLWithPath: $0).standardizedFileURL.path } ?? "?")
         """)
         return 1
     }
