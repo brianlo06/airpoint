@@ -11,14 +11,14 @@
 
 'use strict';
 
-import { PointerPipeline, Calibrator, quatFromDeviceOrientation } from '/motion.js';
+import { PointerPipeline, Calibrator, quatFromDeviceOrientation, quatConjugate, quatRotate } from '/motion.js';
 
 const PROTOCOL_VERSION = 1;
 // Bumped whenever the controller changes in a way that matters. The server compares this
 // against its own version and says so when they differ: a phone holding a stale page in a
 // backgrounded tab reconnects silently over WebSocket and looks perfectly healthy while
 // running months-old code.
-const CLIENT_VERSION = '0.1.2';
+const CLIENT_VERSION = '0.1.3';
 const SEND_HZ = 60;
 const PING_INTERVAL_MS = 2000;
 // Never let a queued motion delta accumulate: by the time a backed-up frame is delivered
@@ -238,6 +238,8 @@ class Sensors extends EventTarget {
     this.accelerationG = null;
     this.lastSampleAt = 0;
     this.sampleCount = 0;
+    this.rateSampleCount = 0;
+    this.lastRateAt = 0;
     this.started = false;
     this.permissionState = 'unknown';
     this._onOrientation = this._onOrientation.bind(this);
@@ -300,15 +302,38 @@ class Sensors extends EventTarget {
   _onMotion(event) {
     const rate = event.rotationRate;
     if (rate && rate.alpha !== null) {
-      // deviceorientation rates arrive in degrees per second.
+      // rotationRate is in degrees/second, named by the axis each component turns about:
+      // alpha about Z, beta about X, gamma about Y.
       const toRad = Math.PI / 180;
-      this.rotationRate = { x: (rate.beta || 0) * toRad, y: (rate.gamma || 0) * toRad, z: (rate.alpha || 0) * toRad };
+      this.rotationRate = {
+        x: (rate.beta || 0) * toRad,
+        y: (rate.gamma || 0) * toRad,
+        z: (rate.alpha || 0) * toRad,
+      };
+      this.rateSampleCount += 1;
+      this.lastRateAt = performance.now();
     }
     const accel = event.accelerationIncludingGravity;
     if (accel && accel.x !== null) {
       const g = 9.80665;
       this.accelerationG = { x: (accel.x || 0) / g, y: (accel.y || 0) / g, z: (accel.z || 0) / g };
     }
+  }
+
+  // World "down" expressed in device coordinates.
+  //
+  // Derived from the orientation quaternion rather than from accelerationIncludingGravity,
+  // for two reasons: the accelerometer reading is polluted by hand movement, and browsers
+  // disagree about its sign (the W3C convention and Safari's have historically differed).
+  // Gravity's direction depends only on beta and gamma, never on alpha, so this stays
+  // completely free of the magnetometer.
+  get gravityDown() {
+    if (!this.attitude) return null;
+    return quatRotate(quatConjugate(this.attitude), { x: 0, y: 0, z: -1 });
+  }
+
+  get hasRateStream() {
+    return this.rotationRate !== null && performance.now() - this.lastRateAt < 500;
   }
 }
 
@@ -331,6 +356,7 @@ class App {
     this.diagTimer = null;
     this.sentFrames = 0;
     this.lastSentDelta = { dx: 0, dy: 0 };
+    this.usingRatePath = false;
 
     this.pipeline.setActive(false);
     this._restoreSensitivity();
@@ -515,11 +541,23 @@ class App {
       return;
     }
 
+    const now = performance.now() / 1000;
+    const gravityDown = this.sensors.gravityDown;
+
+    if (this.sensors.hasRateStream && gravityDown) {
+      this.pipeline.processRate(this.sensors.rotationRate, gravityDown, now);
+      this.usingRatePath = true;
+      return;
+    }
+
+    // No gyroscope stream: fall back to differencing the orientation quaternion. Works,
+    // but inherits the magnetometer's noise in yaw.
+    this.usingRatePath = false;
     this.pipeline.process({
       attitude: this.sensors.attitude,
       rotationRate: this.sensors.rotationRate,
       accelerationG: this.sensors.accelerationG,
-      timestamp: performance.now() / 1000,
+      timestamp: now,
     });
   }
 
@@ -544,7 +582,8 @@ class App {
       const d = this.lastSentDelta;
       el.textContent = problem
         ? `⚠ ${problem}`
-        : `sensors ${hz} Hz · clutch ${this.pipeline.isActive ? 'ON' : 'off'} · `
+        : `${this.usingRatePath ? 'gyro' : 'orient'} ${hz} Hz · `
+          + `clutch ${this.pipeline.isActive ? 'ON' : 'off'} · `
           + `Δ ${d.dx.toFixed(1)},${d.dy.toFixed(1)} · sent ${this.sentFrames}`;
       el.classList.toggle('is-bad', problem !== null);
 
@@ -556,8 +595,13 @@ class App {
   }
 
   _startSendLoop() {
-    clearInterval(this.sendTimer);
-    this.sendTimer = setInterval(() => {
+    // requestAnimationFrame rather than setInterval: a 16.67 ms timer drifts against the
+    // display refresh, so sends land in irregular clumps and the cursor stutters even
+    // though the average rate looks right. rAF is already aligned to real frames.
+    this.sendLoopRunning = true;
+    const tick = () => {
+      if (!this.sendLoopRunning) return;
+      requestAnimationFrame(tick);
       const delta = this.pipeline.drain(performance.now() / 1000);
       if (!delta) return;
       // Under backpressure, skip the send and keep accumulating rather than queueing.
@@ -569,7 +613,8 @@ class App {
       this.lastSentDelta = delta;
       this.sentFrames += 1;
       this._updateLatency();
-    }, 1000 / SEND_HZ);
+    };
+    requestAnimationFrame(tick);
   }
 
   _updateLatency() {
@@ -614,6 +659,8 @@ class App {
   }
 
   _recenter() {
+    // On the rate path there is no absolute reference to reset, but clearing the filter and
+    // bias state is still the right response to "the cursor has wandered".
     if (this.sensors.attitude) this.pipeline.recenter(this.sensors.attitude);
     this.transport.send('recenter', { toCenter: true });
     haptic(20);
@@ -674,7 +721,7 @@ class App {
     $('disconnect').addEventListener('click', () => {
       this.transport.disconnect();
       this.sensors.stop();
-      clearInterval(this.sendTimer);
+      this.sendLoopRunning = false;
       $('screen-remote').classList.remove('is-visible');
       $('screen-connect').classList.add('is-visible');
       $('connect-status').textContent = 'Disconnected';

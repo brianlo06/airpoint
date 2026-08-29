@@ -70,6 +70,24 @@ export function quatFromDeviceOrientation(alphaDeg, betaDeg, gammaDeg) {
   });
 }
 
+export function dot(a, b) {
+  return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+export function cross(a, b) {
+  return {
+    x: a.y * b.z - a.z * b.y,
+    y: a.z * b.x - a.x * b.z,
+    z: a.x * b.y - a.y * b.x,
+  };
+}
+
+export function normalize(v) {
+  const n = Math.hypot(v.x, v.y, v.z);
+  if (!(n > 1e-9)) return { x: 0, y: 0, z: 0 };
+  return { x: v.x / n, y: v.y / n, z: v.z / n };
+}
+
 export function wrapToPi(a) {
   if (!Number.isFinite(a)) return 0;
   return a - 2 * Math.PI * Math.round(a / (2 * Math.PI));
@@ -135,7 +153,7 @@ export const DEFAULT_TUNING = {
   accelReferenceRadS: 1.5,
   accelExponent: 1.3,
   accelCap: 3.0,
-  maxVelocityPxPerSec: 4000,
+  maxVelocityPxPerSec: 9000,
   maxSensorGap: 0.25,
   stationaryGyroThresholdRadS: 0.02,
   stationaryAccelToleranceG: 0.06,
@@ -219,6 +237,64 @@ export class PointerPipeline {
     this.pitchFilter.reset();
   }
 
+  // The preferred path: integrate gyroscope rate, resolved onto gravity-derived world axes.
+  //
+  // iOS derives `deviceorientation`'s alpha from the magnetometer, which indoors — beside a
+  // laptop and a television — is noticeably noisier and laggier than beta/gamma. On a real
+  // phone that made horizontal pointing distinctly worse than vertical. The gyroscope has no
+  // such asymmetry, and resolving its rate onto axes derived from gravity keeps the roll
+  // compensation that makes portrait and landscape work identically.
+  //
+  //   yaw rate   = omega . gravityDown           (rotation about the world vertical)
+  //   pitch rate = omega . (gravityDown x aim)   (rotation about the world horizontal)
+  //
+  // rate: rad/s in the device frame. gravityDown: unit vector along world down, device frame.
+  processRate(rate, gravityDown, timestamp) {
+    const previousT = this.previousTimestamp;
+    this.previousTimestamp = timestamp;
+    if (previousT === null) return { dx: 0, dy: 0 };
+
+    const dt = timestamp - previousT;
+    if (!(dt > 0) || dt > this.tuning.maxSensorGap) return { dx: 0, dy: 0 };
+    if (!this._active) return { dx: 0, dy: 0 };
+    if (!Number.isFinite(rate.x) || !Number.isFinite(rate.y) || !Number.isFinite(rate.z)) {
+      return { dx: 0, dy: 0 };
+    }
+
+    const down = normalize(gravityDown);
+    if (Math.hypot(down.x, down.y, down.z) < 0.5) return { dx: 0, dy: 0 };
+
+    // Aiming near-vertically collapses the horizontal axis; hold rather than emit garbage.
+    const rightRaw = cross(down, POINTING_AXIS);
+    if (Math.hypot(rightRaw.x, rightRaw.y, rightRaw.z) < 1e-3) return { dx: 0, dy: 0 };
+    const right = normalize(rightRaw);
+
+    let dYaw = dot(rate, down) * dt;
+    let dPitch = dot(rate, right) * dt;
+
+    this._updateStationaryFromRate(rate, timestamp, dYaw, dPitch);
+    dYaw -= this.biasYaw;
+    dPitch -= this.biasPitch;
+
+    return this._emit(dYaw, dPitch, dt);
+  }
+
+  _updateStationaryFromRate(rate, timestamp, dYaw, dPitch) {
+    if (Math.hypot(rate.x, rate.y, rate.z) >= this.tuning.stationaryGyroThresholdRadS) {
+      this.stationarySince = null;
+      return;
+    }
+    if (this.stationarySince === null) {
+      this.stationarySince = timestamp;
+      return;
+    }
+    if (timestamp - this.stationarySince < this.tuning.stationaryWindow) return;
+    const lambda = this.tuning.biasLearnRate;
+    this.biasYaw += lambda * (dYaw - this.biasYaw);
+    this.biasPitch += lambda * (dPitch - this.biasPitch);
+  }
+
+  // Fallback for clients with no usable gyroscope stream.
   // sample: { attitude, rotationRate?: {x,y,z} rad/s, accelerationG?: {x,y,z} g, timestamp: seconds }
   process(sample) {
     const previousT = this.previousTimestamp;
@@ -262,8 +338,13 @@ export class PointerPipeline {
     dYaw -= this.biasYaw;
     dPitch -= this.biasPitch;
 
-    dYaw = this.yawFilter.filter(dYaw, dt);
-    dPitch = this.pitchFilter.filter(dPitch, dt);
+    return this._emit(dYaw, dPitch, dt);
+  }
+
+  // Shared tail for both input paths, so the two can never drift apart.
+  _emit(rawYaw, rawPitch, dt) {
+    let dYaw = this.yawFilter.filter(rawYaw, dt);
+    let dPitch = this.pitchFilter.filter(rawPitch, dt);
 
     dYaw = softDeadZone(dYaw, this.tuning.deadZoneRad, this.tuning.deadZoneRampRad);
     dPitch = softDeadZone(dPitch, this.tuning.deadZoneRad, this.tuning.deadZoneRampRad);

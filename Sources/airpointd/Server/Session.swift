@@ -615,5 +615,5 @@ enum AirPoint {
     /// Version of the controller bundled in Resources/web. Kept separate from the server
     /// version because they are updated for different reasons and compared against
     /// different things.
-    static let controllerVersion = "0.1.2"
+    static let controllerVersion = "0.1.3"
 }

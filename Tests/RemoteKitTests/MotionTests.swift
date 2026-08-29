@@ -413,3 +413,129 @@ struct SeededGenerator {
         return r * cos(2 * .pi * v)
     }
 }
+
+/// The gyro-rate path, which is the one a real phone uses.
+///
+/// These pin the sign conventions and the roll compensation. They exist because the
+/// quaternion path shipped with an asymmetry that only a physical device exposed: on iOS
+/// the attitude's yaw is magnetometer-derived and markedly worse than its pitch, so
+/// horizontal pointing felt worse than vertical. Driving from angular rate removes the
+/// magnetometer entirely, and these tests are what keep the axes honest.
+final class AngularRatePointerTests: XCTestCase {
+
+    /// Phone held upright, screen toward the user, aiming away: device -Z is forward,
+    /// +Y is world up, so world "down" in device coordinates is -Y.
+    private let uprightGravityDown = Vector3(0, -1, 0)
+
+    private func run(rate: Vector3, gravityDown: Vector3, seconds: Double = 0.5,
+                     hz: Double = 60, tuning: PointerTuning? = nil) -> PointerDelta {
+        var config = tuning ?? PointerTuning()
+        config.accelCoefficient = 0        // isolate the base gain
+        let pipeline = PointerPipeline(tuning: config)
+        pipeline.isActive = true
+
+        let dt = 1 / hz
+        var t = 100.0
+        var total = PointerDelta.zero
+        _ = pipeline.process(rate: rate, gravityDown: gravityDown, timestamp: t)
+        for _ in 0..<Int(seconds * hz) {
+            t += dt
+            let d = pipeline.process(rate: rate, gravityDown: gravityDown, timestamp: t)
+            total.dx += d.dx
+            total.dy += d.dy
+        }
+        return total
+    }
+
+    func testTurningRightMovesTheCursorRight() {
+        // Turning right is a positive rotation about the world "down" axis.
+        let rate = Vector3(0, -0.5, 0)          // 0.5 rad/s about -Y == about down
+        let total = run(rate: rate, gravityDown: uprightGravityDown)
+        XCTAssertGreaterThan(total.dx, 0, "turning right must move the cursor right")
+        XCTAssertEqual(total.dy, 0, accuracy: 1.0)
+    }
+
+    func testTurningLeftMovesTheCursorLeft() {
+        let total = run(rate: Vector3(0, 0.5, 0), gravityDown: uprightGravityDown)
+        XCTAssertLessThan(total.dx, 0)
+    }
+
+    func testAimingUpMovesTheCursorUp() {
+        // Positive rotation about the device +X (right) axis tips the aim upward.
+        let total = run(rate: Vector3(0.5, 0, 0), gravityDown: uprightGravityDown)
+        XCTAssertLessThan(total.dy, 0, "aiming up must move the cursor up (negative screen y)")
+        XCTAssertEqual(total.dx, 0, accuracy: 1.0)
+    }
+
+    func testTravelMatchesTheIntegratedAngle() {
+        var tuning = PointerTuning()
+        tuning.accelCoefficient = 0
+        tuning.deadZoneRad = 0
+        let total = run(rate: Vector3(0, -0.5, 0), gravityDown: uprightGravityDown,
+                        seconds: 1.0, tuning: tuning)
+        // 0.5 rad/s for 1 s = 0.5 rad; at 2200 px/rad that is 1100 px.
+        XCTAssertEqual(total.dx, 1100, accuracy: 1100 * 0.1)
+    }
+
+    /// The whole point of resolving onto gravity-derived axes: holding the phone rolled
+    /// 90 degrees must not swap or tilt the cursor axes.
+    func testRollDoesNotChangeTheMapping() {
+        let upright = run(rate: Vector3(0, -0.5, 0), gravityDown: uprightGravityDown)
+
+        // Phone rolled so that device +X now points at the floor: world down is +X in
+        // device coordinates. "Turn right" is always a rotation about world down, so in
+        // this grip the same physical gesture is a rotation about device +X.
+        let rolled = run(rate: Vector3(0.5, 0, 0), gravityDown: Vector3(1, 0, 0))
+
+        XCTAssertGreaterThan(rolled.dx, 0, "turning right must still move the cursor right when rolled")
+        XCTAssertEqual(rolled.dx, upright.dx, accuracy: abs(upright.dx) * 0.05,
+                       "the same physical gesture must produce the same travel in any grip")
+        XCTAssertEqual(rolled.dy, 0, accuracy: 1.0)
+    }
+
+    func testStillPhoneProducesNothing() {
+        let total = run(rate: Vector3(0, 0, 0), gravityDown: uprightGravityDown)
+        XCTAssertEqual(total.dx, 0, accuracy: 1e-9)
+        XCTAssertEqual(total.dy, 0, accuracy: 1e-9)
+    }
+
+    func testReleasedClutchProducesNothing() {
+        let pipeline = PointerPipeline()
+        pipeline.isActive = false
+        var t = 100.0
+        var total = 0.0
+        for _ in 0..<60 {
+            t += 1.0 / 60
+            total += abs(pipeline.process(rate: Vector3(0, -0.5, 0),
+                                          gravityDown: uprightGravityDown, timestamp: t).dx)
+        }
+        XCTAssertEqual(total, 0)
+    }
+
+    func testSensorGapIsDiscarded() {
+        let pipeline = PointerPipeline()
+        pipeline.isActive = true
+        _ = pipeline.process(rate: Vector3(0, -0.5, 0), gravityDown: uprightGravityDown, timestamp: 100)
+        let afterGap = pipeline.process(rate: Vector3(0, -0.5, 0),
+                                        gravityDown: uprightGravityDown, timestamp: 105)
+        XCTAssertEqual(afterGap.dx, 0, "a rate sample across a 5 s gap must not integrate")
+    }
+
+    func testMissingGravityIsIgnored() {
+        let pipeline = PointerPipeline()
+        pipeline.isActive = true
+        _ = pipeline.process(rate: Vector3(0, -0.5, 0), gravityDown: .init(0, 0, 0), timestamp: 100)
+        let d = pipeline.process(rate: Vector3(0, -0.5, 0), gravityDown: .init(0, 0, 0), timestamp: 100.016)
+        XCTAssertEqual(d.dx, 0, "no usable gravity reading must produce no motion, not garbage")
+    }
+
+    func testAimingStraightDownDoesNotExplode() {
+        // Gravity parallel to the aim axis makes the horizontal axis degenerate.
+        let pipeline = PointerPipeline()
+        pipeline.isActive = true
+        _ = pipeline.process(rate: Vector3(0.5, 0, 0), gravityDown: Vector3(0, 0, -1), timestamp: 100)
+        let d = pipeline.process(rate: Vector3(0.5, 0, 0), gravityDown: Vector3(0, 0, -1), timestamp: 100.016)
+        XCTAssertTrue(d.dx.isFinite && d.dy.isFinite)
+        XCTAssertEqual(d.dx, 0)
+    }
+}

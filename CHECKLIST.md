@@ -45,9 +45,12 @@ Anything marked **done** has been built *and* exercised, either by `swift test` 
 - [x] Latency HUD; gain backs off automatically above 150 ms
 - [x] Four modes: Pointer, Media, Keyboard, Browser
 - [x] Suspension, orientation-change and touch-cancel handling
-- [ ] **Not yet done: run on a physical phone.** Everything above is written and the desktop
-      mouse fallback path works, but no real gyroscope has driven it yet. This is the next
-      thing to do and may well shake out tuning changes.
+- [x] **Run on a physical phone.** Done: an iPhone drove 27,383 px of cursor travel over a
+      45-second session at 30–50 frames/s. Pointing works.
+- [x] Gyro-rate pointing path, after device testing showed yaw (magnetometer-derived) was
+      markedly worse than pitch
+- [ ] Tune gain/acceleration against a real hand — current values are still synthetic
+- [ ] Smoothness pass: measure frame-rate variance on device (observed 27–50 Hz, want steady 60)
 
 ---
 
@@ -94,9 +97,11 @@ Anything marked **done** has been built *and* exercised, either by `swift test` 
 
 ## Known gaps and honest caveats
 
-1. **No physical-device testing yet.** The motion pipeline is unit-tested against synthetic
-   attitude data and the protocol is verified against a live daemon, but the feel of the
-   thing is unproven. Expect the gain, acceleration and dead-zone defaults to move.
+1. **Tuning is still synthetic.** Pointing has now been driven by a real iPhone and works,
+   but the gain, acceleration and dead-zone defaults were chosen against simulated data and
+   have had exactly one round of feedback ("janky, sideways worse than vertical") applied.
+   Expect them to move again. Frame delivery was 27–50 Hz rather than a steady 60; the
+   cause of that variance has not been measured yet.
 2. **Secrets are in 0600 files, not the Keychain, by default.** The Keychain binds an item's
    ACL to the exact binary, so an unsigned CLI gets a modal approval prompt on every rebuild
    — which a background daemon cannot answer, and which hangs startup. `--keychain` exists
@@ -113,6 +118,23 @@ Anything marked **done** has been built *and* exercised, either by `swift test` 
 7. **`scroll` momentum is accepted and validated but not yet mapped** to macOS continuous
    scroll phases.
 8. **No CI yet.** `swift test` and `tools/dev.sh` run locally; nothing runs them on push.
+
+## Found by real-device testing
+
+- Pairing codes expired mid-flow at 90 s; the first run cannot be completed that fast.
+- Nothing ever raised the Accessibility prompt, so the binary had to be found by hand.
+- A backgrounded Safari tab reconnects over WebSocket without reloading, so the phone ran a
+  stale controller for three debugging rounds while looking healthy.
+- iOS does not reliably carry a motion grant across page loads, and the "Enable motion"
+  gate only appeared when the grant had *never* been given — leaving no way to recover.
+- `DeviceMotionEvent` permission is separate from `DeviceOrientationEvent`; only the latter
+  was being requested.
+- The clutch was not discoverable. Tapping the pad is also a click, so clicking worked
+  perfectly and only pointing seemed broken. Added an aim-lock toggle.
+- "Motion is flowing" fired on 20 px of total travel — a creep no one can see. Telemetry now
+  reports frames/s and mean px/frame.
+- **Yaw was magnetometer-derived and visibly worse than pitch.** Switched to gyro rate.
+- The velocity clamp bound on nearly every fast flick.
 
 ## Fixed during Phase 1–3 (recorded because each was a real defect, not a typo)
 

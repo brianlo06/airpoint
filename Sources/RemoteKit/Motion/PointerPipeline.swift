@@ -29,7 +29,12 @@ public struct PointerTuning: Equatable, Sendable {
 
     /// Hard ceiling on cursor speed. Bounds the blast radius of a sensor glitch,
     /// a scheduling hiccup, or a hostile client.
-    public var maxVelocityPxPerSec: Double = 4000
+    ///
+    /// 4000 px/s proved too tight in practice: on a real phone the clamp bound on almost
+    /// every fast flick (deltas pinned at exactly 80 px per frame at 50 Hz), which chops
+    /// the end of a gesture and reads as jank. This still bounds a runaway, but sits above
+    /// the range a hand actually produces.
+    public var maxVelocityPxPerSec: Double = 9000
 
     /// Any gap longer than this means the sensor stream stopped (backgrounded tab, phone call,
     /// screen lock). The accumulated delta across the gap is meaningless and is discarded.
@@ -143,8 +148,53 @@ public final class PointerPipeline {
         stationarySince = nil
     }
 
-    /// Feeds one sensor sample. Returns the incremental pixel delta contributed by this
-    /// sample (also accumulated internally for `drain`).
+    /// Feeds an angular-rate sample: the preferred path.
+    ///
+    /// Pointing from integrated **gyroscope rate** rather than from the orientation
+    /// quaternion, because on iOS the quaternion's yaw is magnetometer-referenced. Indoors,
+    /// next to a laptop and a television, that heading is noisy and laggy — which shows up
+    /// as horizontal movement being markedly worse than vertical, since pitch comes from
+    /// clean gyro/accelerometer fusion and yaw does not. The gyro has no such asymmetry.
+    ///
+    /// Roll compensation is preserved by resolving the rate onto world axes derived from
+    /// gravity, so the maths stays orientation-agnostic exactly as before:
+    ///   yaw rate   = omega . gravityDown            (rotation about the world vertical)
+    ///   pitch rate = omega . (gravityDown x aim)    (rotation about the world horizontal)
+    ///
+    /// - Parameters:
+    ///   - rate: angular velocity in the device frame, radians/second.
+    ///   - gravityDown: unit vector pointing along world "down", in the device frame.
+    @discardableResult
+    public func process(rate: Vector3, gravityDown: Vector3, timestamp: TimeInterval) -> PointerDelta {
+        let previousT = previousTimestamp
+        previousTimestamp = timestamp
+        guard let previousT else { return .zero }
+
+        let dt = timestamp - previousT
+        guard dt > 0, dt <= tuning.maxSensorGap else { return .zero }
+        guard isActive else { return .zero }
+        guard rate.x.isFinite, rate.y.isFinite, rate.z.isFinite else { return .zero }
+
+        let down = gravityDown.normalized
+        guard down.length > 0.5 else { return .zero }   // no usable gravity reading
+
+        // Aiming near-vertically makes the horizontal axis degenerate; hold the previous
+        // frame rather than producing a wild value as the cross product collapses.
+        let rightRaw = down.cross(Self.pointingAxis)
+        guard rightRaw.length > 1e-3 else { return .zero }
+        let right = rightRaw.normalized
+
+        var dYaw = rate.dot(down) * dt
+        var dPitch = rate.dot(right) * dt
+
+        updateStationaryFromRate(rate: rate, timestamp: timestamp, dYaw: dYaw, dPitch: dPitch)
+        dYaw -= biasYaw
+        dPitch -= biasPitch
+
+        return emit(dYaw: dYaw, dPitch: dPitch, dt: dt)
+    }
+
+    /// Feeds one attitude sample. Fallback for clients with no usable gyroscope stream.
     @discardableResult
     public func process(_ sample: SensorSample) -> PointerDelta {
         let previousT = previousTimestamp
@@ -190,9 +240,14 @@ public final class PointerPipeline {
         dYaw -= biasYaw
         dPitch -= biasPitch
 
+        return emit(dYaw: dYaw, dPitch: dPitch, dt: dt)
+    }
+
+    /// Stages ⑦–⑨, shared by both input paths so the two can never drift apart.
+    private func emit(dYaw rawYaw: Double, dPitch rawPitch: Double, dt: Double) -> PointerDelta {
         // ⑦ Speed-adaptive smoothing.
-        dYaw = yawFilter.filter(dYaw, dt: dt)
-        dPitch = pitchFilter.filter(dPitch, dt: dt)
+        var dYaw = yawFilter.filter(rawYaw, dt: dt)
+        var dPitch = pitchFilter.filter(rawPitch, dt: dt)
 
         // ⑧ Soft dead zone.
         dYaw = Self.softDeadZone(dYaw, epsilon: tuning.deadZoneRad, ramp: tuning.deadZoneRampRad)
@@ -208,6 +263,22 @@ public final class PointerPipeline {
         accumulated.dx += delta.dx
         accumulated.dy += delta.dy
         return delta
+    }
+
+    private func updateStationaryFromRate(rate: Vector3, timestamp: TimeInterval,
+                                          dYaw: Double, dPitch: Double) {
+        guard rate.length < tuning.stationaryGyroThresholdRadS else {
+            stationarySince = nil
+            return
+        }
+        guard let since = stationarySince else {
+            stationarySince = timestamp
+            return
+        }
+        guard timestamp - since >= tuning.stationaryWindow else { return }
+        let lambda = tuning.biasLearnRate
+        biasYaw += lambda * (dYaw - biasYaw)
+        biasPitch += lambda * (dPitch - biasPitch)
     }
 
     /// Returns the coalesced delta since the last drain, velocity-clamped, and clears it.

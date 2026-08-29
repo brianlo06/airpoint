@@ -37,6 +37,39 @@ the pipeline is structured so it is a different final stage, not a rewrite.
   `deviceorientation`'s α/β/γ, or integrated from `rotationRate` where available).
 - `q_ref` — reference attitude captured at calibration/recenter.
 
+## Input source: angular rate, not attitude — revised after device testing
+
+The first implementation differenced the orientation quaternion. On a real iPhone that
+produced a clear asymmetry: **horizontal pointing was visibly worse than vertical**, janky
+and imprecise, while pitch felt fine.
+
+The cause is that iOS derives `deviceorientation`'s **alpha from the magnetometer**. Indoors,
+next to a laptop and a television, the heading is noisy and laggy. Beta and gamma come from
+gyro/accelerometer fusion and have no such problem — so yaw inherited magnetic noise that
+pitch never saw.
+
+The fix is to drive pointing from the **gyroscope rate** and use gravity only for roll
+compensation, which touches the magnetometer nowhere:
+
+```
+down  = unit vector along world "down", in device coordinates
+right = normalize(down × p̂)              // horizontal axis perpendicular to the aim
+Δyaw   = (ω · down)  · dt
+Δpitch = (ω · right) · dt
+```
+
+`down` is derived from the orientation quaternion rather than from
+`accelerationIncludingGravity`, for two reasons: the accelerometer reading is polluted by
+hand movement, and browsers disagree about its sign. Gravity's direction depends only on
+beta and gamma — never on alpha — so this remains magnetometer-free.
+
+Roll compensation is preserved: both axes are recomputed from gravity every sample, so the
+mapping is identical in any grip. `AngularRatePointerTests.testRollDoesNotChangeTheMapping`
+asserts that the same physical gesture produces the same travel with the phone rolled 90°.
+
+The attitude-differencing path below is retained as a fallback for clients with no usable
+gyroscope stream, and both paths share stages ⑦–⑨.
+
 ## Pipeline
 
 ```
@@ -150,8 +183,11 @@ dy_px  = −G · S · accel · Δ′φ                                 // screen
 
 ### ⑩ Velocity clamp
 ```
-if ‖(dx,dy)‖ / dt > V_max:  scale both so that it equals V_max     // V_max = 4000 px/s
+if ‖(dx,dy)‖ / dt > V_max:  scale both so that it equals V_max     // V_max = 9000 px/s
 ```
+Originally 4000 px/s. Device testing showed the clamp binding on nearly every fast flick —
+deltas pinned at exactly 80 px per frame at 50 Hz — which truncates the end of a gesture and
+reads as jank. 9000 px/s still bounds a runaway while sitting above what a hand produces.
 Bounds the damage from a sensor glitch, a dropped frame, or a hostile client.
 
 ### ⑪ Coalescing

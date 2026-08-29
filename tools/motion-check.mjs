@@ -11,6 +11,8 @@
 import {
   PointerPipeline,
   quatFromDeviceOrientation,
+  quatConjugate,
+  quatRotate,
   softDeadZone,
   DEFAULT_TUNING,
 } from '../Sources/airpointd/Resources/web/motion.js';
@@ -119,6 +121,48 @@ const slow = pan({ from: 0, to: 5, axis: 'alpha' });
 check('a slow 5 deg aim still moves the cursor',
   Math.abs(slow.dx) > 20, `dx=${slow.dx.toFixed(1)}`);
 console.log(`        dx=${slow.dx.toFixed(1)} px over 5 deg`);
+
+// --- the gyro-rate path, which is what a real phone now uses -----------------
+
+// World down in device coordinates, for a phone held upright aiming away from the user.
+const uprightDown = quatRotate(
+  quatConjugate(quatFromDeviceOrientation(0, 90, 0)),
+  { x: 0, y: 0, z: -1 }
+);
+
+function panByRate({ rate, gravityDown, seconds = 0.5, hz = 60 }) {
+  const pipeline = new PointerPipeline();
+  pipeline.setActive(true);
+  const dt = 1 / hz;
+  let t = 100;
+  let total = { dx: 0, dy: 0 };
+  pipeline.processRate(rate, gravityDown, t);
+  for (let i = 0; i < seconds * hz; i += 1) {
+    t += dt;
+    pipeline.processRate(rate, gravityDown, t);
+    const drained = pipeline.drain(t);
+    if (drained) {
+      total.dx += drained.dx;
+      total.dy += drained.dy;
+    }
+  }
+  return total;
+}
+
+console.log('\n  -- gyro-rate path --');
+console.log(`        upright gravityDown = (${uprightDown.x.toFixed(2)}, ${uprightDown.y.toFixed(2)}, ${uprightDown.z.toFixed(2)})`);
+
+// Turning right is a rotation about world down, whatever that is in device coordinates.
+const scale = 0.5;
+const rightTurn = { x: uprightDown.x * scale, y: uprightDown.y * scale, z: uprightDown.z * scale };
+const turned = panByRate({ rate: rightTurn, gravityDown: uprightDown, seconds: 1 });
+check('turning right moves the cursor right', turned.dx > 500,
+  `dx=${turned.dx.toFixed(1)} dy=${turned.dy.toFixed(1)}`);
+console.log(`        0.5 rad/s for 1 s -> dx=${turned.dx.toFixed(0)} px (2200 px/rad => ~1100)`);
+
+const stillRate = panByRate({ rate: { x: 0, y: 0, z: 0 }, gravityDown: uprightDown, seconds: 1 });
+check('a still gyro produces no motion',
+  Math.abs(stillRate.dx) < 0.001 && Math.abs(stillRate.dy) < 0.001);
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);

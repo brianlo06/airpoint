@@ -9,6 +9,16 @@ public struct Vector3: Equatable, Sendable {
         let l = length
         return l > 0 ? Vector3(x / l, y / l, z / l) : self
     }
+
+    public func dot(_ other: Vector3) -> Double {
+        x * other.x + y * other.y + z * other.z
+    }
+
+    public func cross(_ other: Vector3) -> Vector3 {
+        Vector3(y * other.z - z * other.y,
+                z * other.x - x * other.z,
+                x * other.y - y * other.x)
+    }
 }
 
 /// Minimal unit-quaternion maths. Deliberately hand-written rather than pulled from a
