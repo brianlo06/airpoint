@@ -20,9 +20,23 @@ final class CGEventExecutor: InputExecutor {
     private var dragging: MouseButton?
     private var dragStartedAt: Date?
 
-    /// Sub-pixel remainder. Pointer deltas arrive as fractions of a pixel at low
-    /// sensitivity; truncating each one independently would lose most slow movement.
-    private var residual = CGPoint.zero
+    /// Where we believe the cursor is, in global display coordinates.
+    ///
+    /// Deltas are integrated here rather than against a fresh read of the OS cursor position
+    /// on every frame. Reading it back per frame looks correct and is not: a posted event
+    /// reaches the window server asynchronously, so a burst of frames processed back to back
+    /// all read the *same* pre-move position and each one computes `stale + delta`. The
+    /// cursor then jitters around a fixed point instead of travelling, which is
+    /// indistinguishable from "the cursor does not move". `--selftest` hid this by sleeping
+    /// 6 ms between moves, which is long enough for the read-back to settle.
+    ///
+    /// Fractional pixels accumulate here too, so slow movement is not lost to rounding.
+    private var virtualPosition: CGPoint?
+    /// When the last synthetic move happened, so a physical mouse nudge is not fought over.
+    private var lastSyntheticMoveAt = Date.distantPast
+    /// After this long without synthetic movement, trust the OS position again — the user
+    /// may have picked up a real mouse, or another app may have warped the cursor.
+    private static let resyncInterval: TimeInterval = 0.5
 
     init() {
         // .hidSystemState posts as though the events came from the hardware, which is what
@@ -58,18 +72,26 @@ final class CGEventExecutor: InputExecutor {
         guard dx.isFinite, dy.isFinite else { return }
         queue.async { [weak self] in
             guard let self else { return }
-            let geometry = DisplayGeometry.current()
-            let current = self.currentLocation()
+            let geometry = DisplayGeometry.cachedCurrent()
+            let now = Date()
 
-            let targetX = current.x + dx + self.residual.x
-            let targetY = current.y + dy + self.residual.y
-            let rounded = CGPoint(x: targetX.rounded(), y: targetY.rounded())
-            self.residual = CGPoint(x: targetX - rounded.x, y: targetY - rounded.y)
+            // Re-seed from the OS only when we have not been driving the cursor recently.
+            var origin: CGPoint
+            if let known = self.virtualPosition,
+               now.timeIntervalSince(self.lastSyntheticMoveAt) < Self.resyncInterval {
+                origin = known
+            } else {
+                origin = self.currentLocation()
+            }
+            self.lastSyntheticMoveAt = now
 
-            let clamped = geometry.clamp(rounded)
-            // If clamping moved the point, the residual is meaningless — drop it so the
-            // cursor does not "spring" when it leaves a screen edge.
-            if clamped != rounded { self.residual = .zero }
+            let target = CGPoint(x: origin.x + dx, y: origin.y + dy)
+            let clamped = geometry.clamp(target)
+            self.virtualPosition = clamped
+
+            // The event itself needs integer pixels; the fractional part stays in
+            // virtualPosition so slow movement accumulates instead of rounding to nothing.
+            let posted = CGPoint(x: clamped.x.rounded(), y: clamped.y.rounded())
 
             let type: CGEventType
             let button: CGMouseButton
@@ -80,11 +102,11 @@ final class CGEventExecutor: InputExecutor {
             }
 
             guard let event = CGEvent(mouseEventSource: self.source, mouseType: type,
-                                      mouseCursorPosition: clamped, mouseButton: button) else { return }
+                                      mouseCursorPosition: posted, mouseButton: button) else { return }
             // Apps that read deltas (games, some canvas apps) ignore absolute position,
             // so set both.
-            event.setIntegerValueField(.mouseEventDeltaX, value: Int64(clamped.x - current.x))
-            event.setIntegerValueField(.mouseEventDeltaY, value: Int64(clamped.y - current.y))
+            event.setIntegerValueField(.mouseEventDeltaX, value: Int64((posted.x - origin.x).rounded()))
+            event.setIntegerValueField(.mouseEventDeltaY, value: Int64((posted.y - origin.y).rounded()))
             event.post(tap: .cghidEventTap)
 
             self.enforceDragTimeout()
@@ -99,7 +121,8 @@ final class CGEventExecutor: InputExecutor {
             let screen = geometry.screen(containing: current) ?? geometry.mainScreen
             guard let screen else { return }
             let center = geometry.center(of: screen)
-            self.residual = .zero
+            self.virtualPosition = center
+            self.lastSyntheticMoveAt = Date()
             guard let event = CGEvent(mouseEventSource: self.source, mouseType: .mouseMoved,
                                       mouseCursorPosition: center, mouseButton: .left) else { return }
             event.post(tap: .cghidEventTap)
@@ -277,7 +300,7 @@ final class CGEventExecutor: InputExecutor {
         queue.async { [weak self] in
             guard let self else { return }
             self.endDragLocked()
-            self.residual = .zero
+            self.virtualPosition = nil
 
             // Release every modifier by posting a flags-cleared event. A stuck Command key
             // after a dropped connection makes the machine feel broken, and the user has no

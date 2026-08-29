@@ -218,6 +218,21 @@ input[type="range"] { flex: 1; height: 36px; accent-color: var(--accent); }
 .dpad-down { grid-area: down; }
 .dpad-right { grid-area: right; }
 
+/* The aim lock is a real toggle, not a one-shot trigger: it carries an explicit pressed
+   state and reads back the mode it is currently in, so its label is never a lie. */
+#aim-lock[aria-pressed="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+/* The clutch is the single most misunderstood control here — nothing moves unless it is
+   engaged — so its state is spelled out on the pad rather than implied by a colour. */
+.pad-hint strong { transition: none; }
+.pad.is-engaged .pad-hint { opacity: 0; }
+.pad.is-locked { background: var(--accent-dim); border-color: var(--accent); }
+.pad.is-locked .pad-hint { opacity: 0; }
+
 /* Diagnostics. Deliberately always visible rather than hidden behind a debug flag:
    when pointing does not work, the first question is always "are the sensors firing",
    and the answer should not require a laptop and a console. */

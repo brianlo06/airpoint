@@ -240,5 +240,36 @@ func runSelfTest(executor: InputExecutor) -> Int32 {
         print("  a display and run again for a clean result.")
     }
     print("\n  If you saw the cursor move, input is working.")
+
+    // The square above is drawn with a 6 ms pause between moves, which is generous enough
+    // to hide a read-back race. A real session delivers 60 deltas a second with no pause at
+    // all, so replay that shape too: burst small deltas and check the cursor actually
+    // travelled the distance it was asked to.
+    print("\n  Burst test (60 Hz, no pauses — this is what a real session looks like)…")
+    let burstStart = CGEvent(source: nil)?.location ?? .zero
+    let perFrame = 4.0
+    let frames = 50
+    for _ in 0..<frames {
+        executor.moveCursor(dx: perFrame, dy: 0)
+    }
+    usleep(400_000)
+    let burstEnd = CGEvent(source: nil)?.location ?? .zero
+    let travelled = burstEnd.x - burstStart.x
+    let expected = perFrame * Double(frames)
+    print(String(format: "    asked for %.0f px, cursor travelled %.0f px", expected, travelled))
+
+    // Undo it so the cursor ends where it started.
+    for _ in 0..<frames { executor.moveCursor(dx: -perFrame, dy: 0) }
+    usleep(300_000)
+
+    if travelled < expected * 0.9 {
+        print("""
+            ✗ The cursor did not keep up with a burst of deltas. Rapid moves are being
+              lost, which in a real session looks like a cursor that twitches but never
+              travels. This is a bug in the input executor, not in your setup.
+        """)
+        return 1
+    }
+    print("    ✓ burst movement is accurate")
     return 0
 }

@@ -18,7 +18,7 @@ const PROTOCOL_VERSION = 1;
 // against its own version and says so when they differ: a phone holding a stale page in a
 // backgrounded tab reconnects silently over WebSocket and looks perfectly healthy while
 // running months-old code.
-const CLIENT_VERSION = '0.1.1';
+const CLIENT_VERSION = '0.1.2';
 const SEND_HZ = 60;
 const PING_INTERVAL_MS = 2000;
 // Never let a queued motion delta accumulate: by the time a backed-up frame is delivered
@@ -325,6 +325,8 @@ class App {
     this.credentials = readPairingFragment();
     this.calibrating = false;
     this.sensorsAttached = false;
+    // When locked, motion runs continuously instead of only while the pad is held.
+    this.aimLocked = localStorage.getItem('airpoint.aimLocked') === 'yes';
     this.sendTimer = null;
     this.diagTimer = null;
     this.sentFrames = 0;
@@ -754,8 +756,32 @@ class App {
       haptic(15);
     });
 
+    this._wireAimLock();
     this._wirePad();
     this._wireLifecycle();
+  }
+
+  _wireAimLock() {
+    const button = $('aim-lock');
+    const apply = () => {
+      button.setAttribute('aria-pressed', String(this.aimLocked));
+      button.textContent = this.aimLocked ? 'Aim: locked on — tap to unlock' : 'Aim: hold the pad';
+      $('pad').classList.toggle('is-locked', this.aimLocked);
+      $('pad-live').classList.toggle('is-hidden', !this.aimLocked);
+      this.pipeline.setActive(this.aimLocked);
+      if (this.aimLocked && this.sensors.attitude) {
+        this.pipeline.recenter(this.sensors.attitude);
+      }
+      localStorage.setItem('airpoint.aimLocked', this.aimLocked ? 'yes' : 'no');
+    };
+    button.addEventListener('click', () => {
+      this.aimLocked = !this.aimLocked;
+      haptic(this.aimLocked ? [20, 40, 20] : 12);
+      toast(this.aimLocked ? 'Aim locked — the phone now steers the cursor'
+                           : 'Hold the pad to aim');
+      apply();
+    });
+    apply();
   }
 
   // The protocol's key names are mostly literal; a few UI labels use friendlier aliases.
@@ -791,6 +817,7 @@ class App {
     let touchCount = 0;
 
     const engage = () => {
+      if (this.aimLocked) return;   // already running; a touch must not re-seed it
       this.pipeline.setActive(true);
       pad.classList.add('is-engaged');
       $('pad-live').classList.remove('is-hidden');
@@ -800,6 +827,10 @@ class App {
     };
 
     const release = () => {
+      if (this.aimLocked) {
+        pad.classList.remove('is-dragging');
+        return;
+      }
       this.pipeline.setActive(false);
       pad.classList.remove('is-engaged', 'is-dragging');
       $('pad-live').classList.add('is-hidden');

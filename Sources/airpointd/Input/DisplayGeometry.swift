@@ -24,6 +24,24 @@ struct DisplayGeometry {
 
     init(screens: [Screen]) { self.screens = screens }
 
+    /// Cached because this runs on every pointer frame and `CGDisplayCopyDisplayMode` is
+    /// expensive enough that calling it at 60 Hz shows up as input latency. Displays change
+    /// rarely; a short TTL keeps hot-plug working without paying the cost per frame.
+    private static let cacheLock = NSLock()
+    nonisolated(unsafe) private static var cached: (geometry: DisplayGeometry, at: Date)?
+    private static let cacheTTL: TimeInterval = 2
+
+    static func cachedCurrent() -> DisplayGeometry {
+        cacheLock.lock()
+        defer { cacheLock.unlock() }
+        if let cached, Date().timeIntervalSince(cached.at) < cacheTTL {
+            return cached.geometry
+        }
+        let fresh = current()
+        cached = (fresh, Date())
+        return fresh
+    }
+
     static func current() -> DisplayGeometry {
         var count: UInt32 = 0
         guard CGGetActiveDisplayList(0, nil, &count) == .success, count > 0 else {

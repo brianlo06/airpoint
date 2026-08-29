@@ -45,6 +45,10 @@ final class ClientConnection {
     // while the cursor never moves, and that looks identical to a broken server.
     private var pointerFrameCount = 0
     private var pointerPixelsMoved = 0.0
+    private var pointerMaxDelta = 0.0
+    private var lastMotionReportAt = Date()
+    private var framesSinceReport = 0
+    private var pixelsSinceReport = 0.0
     private var authenticatedAt: Date?
     private var announcedMotion = false
     private var warnedAboutMissingMotion = false
@@ -321,6 +325,30 @@ final class ClientConnection {
 
     /// Frames rejected before decoding never reach the rate limiter, so they get their own
     /// budget. Without it, a client could flood invalid frames indefinitely at no cost.
+    /// Reports what the deltas actually look like, not merely that some arrived.
+    ///
+    /// "Motion is flowing" is nearly useless on its own: a phone dribbling 0.05 px per frame
+    /// satisfies it while the cursor visibly never moves. The magnitudes are the diagnosis —
+    /// they separate "the sensors are barely changing" from "the deltas are fine and the
+    /// problem is further down".
+    private func reportMotionRate() {
+        let now = Date()
+        let elapsed = now.timeIntervalSince(lastMotionReportAt)
+        guard elapsed >= 2, framesSinceReport > 0 else { return }
+        let rate = Double(framesSinceReport) / elapsed
+        let mean = pixelsSinceReport / Double(framesSinceReport)
+        Log.info(String(format: "pointer: %.0f frames/s, mean %.2f px/frame, peak %.1f px, %.0f px total",
+                        rate, mean, pointerMaxDelta, pointerPixelsMoved))
+        if mean < 0.3 {
+            Log.warn("""
+            those deltas are far too small to see (mean \(String(format: "%.2f", mean)) px/frame).             Either the phone is barely moving, or the pad is only being touched briefly — motion             runs only while the pad is held. Tap "Aim: hold the pad" on the phone to lock it on.
+            """)
+        }
+        lastMotionReportAt = now
+        framesSinceReport = 0
+        pixelsSinceReport = 0
+    }
+
     /// A session that is alive and sending frames but has never sent a pointer delta means
     /// the phone's sensors are not reaching the page. Saying so beats leaving the user to
     /// wonder whether the Mac, the network or the phone is at fault.
@@ -376,12 +404,14 @@ final class ClientConnection {
             guard message.seq == 0 || message.seq >= lastAppliedPointerSeq else { return }
             lastAppliedPointerSeq = message.seq
             guard requirePermission() else { return }
+            let magnitude = (move.dx * move.dx + move.dy * move.dy).squareRoot()
             pointerFrameCount += 1
-            pointerPixelsMoved += abs(move.dx) + abs(move.dy)
-            if !announcedMotion, pointerPixelsMoved > 20 {
-                announcedMotion = true
-                Log.info("motion input is flowing from '\(deviceName ?? "device")'")
-            }
+            pointerPixelsMoved += magnitude
+            pointerMaxDelta = max(pointerMaxDelta, magnitude)
+            framesSinceReport += 1
+            pixelsSinceReport += magnitude
+            announcedMotion = true
+            reportMotionRate()
             executor.moveCursor(dx: move.dx, dy: move.dy)
 
         case .leftClick(let click):
@@ -585,5 +615,5 @@ enum AirPoint {
     /// Version of the controller bundled in Resources/web. Kept separate from the server
     /// version because they are updated for different reasons and compared against
     /// different things.
-    static let controllerVersion = "0.1.1"
+    static let controllerVersion = "0.1.2"
 }
