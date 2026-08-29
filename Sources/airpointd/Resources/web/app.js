@@ -14,7 +14,11 @@
 import { PointerPipeline, Calibrator, quatFromDeviceOrientation } from '/motion.js';
 
 const PROTOCOL_VERSION = 1;
-const CLIENT_VERSION = '0.1.0';
+// Bumped whenever the controller changes in a way that matters. The server compares this
+// against its own version and says so when they differ: a phone holding a stale page in a
+// backgrounded tab reconnects silently over WebSocket and looks perfectly healthy while
+// running months-old code.
+const CLIENT_VERSION = '0.1.1';
 const SEND_HZ = 60;
 const PING_INTERVAL_MS = 2000;
 // Never let a queued motion delta accumulate: by the time a backed-up frame is delivered

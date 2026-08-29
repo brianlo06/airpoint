@@ -1,0 +1,124 @@
+#!/usr/bin/env node
+// Drives the browser motion pipeline with synthetic `deviceorientation` angles.
+//
+// This exists to separate two very different failures that look identical from the couch:
+// "the phone is not delivering sensor events" and "my maths turns sensor events into zero".
+// It imports the exact file the browser loads, so a pass here means the remaining problem
+// is delivery, permission or the clutch — not the algorithm.
+//
+//   node tools/motion-check.mjs
+
+import {
+  PointerPipeline,
+  quatFromDeviceOrientation,
+  softDeadZone,
+  DEFAULT_TUNING,
+} from '../Sources/airpointd/Resources/web/motion.js';
+
+let passed = 0;
+let failed = 0;
+
+function check(name, condition, detail = '') {
+  if (condition) {
+    passed += 1;
+    console.log(`  ok    ${name}`);
+  } else {
+    failed += 1;
+    console.log(`  FAIL  ${name}${detail ? ' — ' + detail : ''}`);
+  }
+}
+
+// Feeds a pan through the pipeline exactly as app.js does: process every sensor sample,
+// drain at the send rate, sum what would have gone on the wire.
+function pan({ from, to, axis, steps = 60, hz = 60, beta = 45, gamma = 0 }) {
+  const pipeline = new PointerPipeline();
+  const dt = 1 / hz;
+  let t = 100;
+
+  const anglesAt = (fraction) => {
+    const value = from + (to - from) * fraction;
+    return {
+      alpha: axis === 'alpha' ? value : 0,
+      beta: axis === 'beta' ? value : beta,
+      gamma: axis === 'gamma' ? value : gamma,
+    };
+  };
+
+  // Seed, then recentre, mirroring engage() on touchstart.
+  const first = anglesAt(0);
+  pipeline.process({
+    attitude: quatFromDeviceOrientation(first.alpha, first.beta, first.gamma),
+    timestamp: t,
+  });
+  pipeline.recenter(quatFromDeviceOrientation(first.alpha, first.beta, first.gamma));
+  pipeline.setActive(true);
+
+  let total = { dx: 0, dy: 0 };
+  for (let i = 1; i <= steps; i += 1) {
+    t += dt;
+    const a = anglesAt(i / steps);
+    pipeline.process({
+      attitude: quatFromDeviceOrientation(a.alpha, a.beta, a.gamma),
+      timestamp: t,
+    });
+    const drained = pipeline.drain(t);
+    if (drained) {
+      total.dx += drained.dx;
+      total.dy += drained.dy;
+    }
+  }
+  return total;
+}
+
+console.log('AirPoint motion pipeline check (browser code, synthetic sensors)\n');
+
+// A 20-degree yaw sweep over one second is an ordinary aiming gesture.
+const yaw = pan({ from: 0, to: 20, axis: 'alpha' });
+check('a 20 deg yaw sweep produces horizontal motion',
+  Math.abs(yaw.dx) > 100, `dx=${yaw.dx.toFixed(1)} dy=${yaw.dy.toFixed(1)}`);
+console.log(`        dx=${yaw.dx.toFixed(1)} px  dy=${yaw.dy.toFixed(1)} px`);
+
+// Tilting the phone up and down.
+const pitch = pan({ from: 45, to: 65, axis: 'beta' });
+check('a 20 deg pitch sweep produces vertical motion',
+  Math.abs(pitch.dy) > 100, `dx=${pitch.dx.toFixed(1)} dy=${pitch.dy.toFixed(1)}`);
+console.log(`        dx=${pitch.dx.toFixed(1)} px  dy=${pitch.dy.toFixed(1)} px`);
+
+// The clutch must gate everything.
+const clutched = (() => {
+  const pipeline = new PointerPipeline();
+  pipeline.setActive(false);
+  let t = 100;
+  pipeline.process({ attitude: quatFromDeviceOrientation(0, 45, 0), timestamp: t });
+  let total = 0;
+  for (let i = 1; i <= 60; i += 1) {
+    t += 1 / 60;
+    pipeline.process({ attitude: quatFromDeviceOrientation(i / 3, 45, 0), timestamp: t });
+    const d = pipeline.drain(t);
+    if (d) total += Math.abs(d.dx);
+  }
+  return total;
+})();
+check('a released clutch produces no motion at all', clutched === 0, `got ${clutched}`);
+
+// A still phone must not creep.
+const still = pan({ from: 10, to: 10, axis: 'alpha' });
+check('a still phone produces no motion',
+  Math.abs(still.dx) < 0.001 && Math.abs(still.dy) < 0.001,
+  `dx=${still.dx} dy=${still.dy}`);
+
+// Sanity on the stages most likely to silently zero everything out.
+check('the dead zone passes an ordinary frame delta',
+  softDeadZone(0.004, DEFAULT_TUNING.deadZoneRad, DEFAULT_TUNING.deadZoneRampRad) > 0.002,
+  `got ${softDeadZone(0.004, DEFAULT_TUNING.deadZoneRad, DEFAULT_TUNING.deadZoneRampRad)}`);
+check('the dead zone blocks sub-threshold drift',
+  softDeadZone(0.0004, DEFAULT_TUNING.deadZoneRad, DEFAULT_TUNING.deadZoneRampRad) === 0);
+
+// A realistic slow aim: 5 degrees over a second still has to move the cursor usefully.
+const slow = pan({ from: 0, to: 5, axis: 'alpha' });
+check('a slow 5 deg aim still moves the cursor',
+  Math.abs(slow.dx) > 20, `dx=${slow.dx.toFixed(1)}`);
+console.log(`        dx=${slow.dx.toFixed(1)} px over 5 deg`);
+
+console.log(`\n${passed} passed, ${failed} failed`);
+process.exit(failed === 0 ? 0 : 1);

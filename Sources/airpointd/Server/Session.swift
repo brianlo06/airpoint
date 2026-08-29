@@ -447,7 +447,15 @@ final class ClientConnection {
             return
         }
         deviceName = hello.deviceName
-        Log.info("pairing request from '\(hello.deviceName)' (\(peer)) mode=\(hello.auth.mode.rawValue)")
+        Log.info("pairing request from '\(hello.deviceName)' (\(peer)) mode=\(hello.auth.mode.rawValue) client=\(hello.clientVersion)")
+
+        // A reconnecting WebSocket does not reload the page, so a tab left open across an
+        // update keeps running the old controller indefinitely while looking healthy.
+        if hello.clientVersion != AirPoint.controllerVersion {
+            Log.warn("""
+            this phone is running controller \(hello.clientVersion) but this server ships             \(AirPoint.controllerVersion). The page did not reload. Close the tab on the phone             entirely and open the URL again — reconnecting over WebSocket does not fetch new code.
+            """)
+        }
 
         if hello.auth.mode == .code {
             send(.pairPending, PairPendingPayload(message: "Approve this device on your Mac",
@@ -574,4 +582,8 @@ final class ClientConnection {
 
 enum AirPoint {
     static let version = "0.1.0"
+    /// Version of the controller bundled in Resources/web. Kept separate from the server
+    /// version because they are updated for different reasons and compared against
+    /// different things.
+    static let controllerVersion = "0.1.1"
 }

@@ -17,6 +17,9 @@ swift build
 echo "==> unit tests"
 swift test 2>&1 | grep -E "Executed [0-9]+ tests" | tail -1
 
+echo "==> browser motion pipeline"
+node tools/motion-check.mjs | tail -1
+
 mkdir -p "$STATE_DIR"
 echo "==> starting airpointd (dry-run, loopback, state in $STATE_DIR)"
 ./.build/debug/airpointd \
