@@ -168,10 +168,16 @@ func printPairingCode(config: Config, identity: TLSIdentity.Loaded,
     let host = subjectNames.first ?? "127.0.0.1"
     let url = secret.pairingURL(host: host, port: config.port,
                                 fingerprint: identity.certificateFingerprint)
-    var out = "\n──────────────────────────────────────────\n"
-    out += "The previous pairing code expired.\n\n"
+    // Scrollback now holds more than one QR code, and the stale one is the one that is
+    // easier to scroll to. Say plainly which is which, or the user scans the old one and
+    // gets a pairing failure that looks like a bug.
+    var out = "\n"
+    out += "════════════════════════════════════════════════════════════\n"
+    out += "  The code above has EXPIRED. Ignore any earlier QR code.\n"
+    out += "  Scan THIS one, or type THIS code:\n"
+    out += "════════════════════════════════════════════════════════════\n\n"
     out += "    https://\(host):\(config.port)\n\n"
-    out += "New pairing code:  \(secret.displayCode)   (valid \(secret.remainingSeconds())s)\n\n"
+    out += "    Pairing code:  \(secret.displayCode)   (valid \(secret.remainingSeconds())s)\n\n"
     if let qr = QRCode.terminalString(for: url) { out += qr + "\n" }
     FileHandle.standardError.write(Data(out.utf8))
 }

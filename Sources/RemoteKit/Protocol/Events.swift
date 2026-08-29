@@ -29,9 +29,14 @@ public struct HelloPayload: Codable, Equatable, Sendable, ValidatablePayload {
         public var proof: String
         /// Ed25519 public key, base64. Required for `.code` when the user may choose "trust".
         public var publicKey: String?
+        /// Which channel the credential came from: "qr" or "typed". Diagnostic only — the
+        /// server verifies against both regardless. It exists so that a failure can say
+        /// *which* thing the user did, which is the difference between "your QR is stale"
+        /// and "you mistyped the code".
+        public var channel: String?
 
-        public init(mode: Mode, proof: String, publicKey: String? = nil) {
-            self.mode = mode; self.proof = proof; self.publicKey = publicKey
+        public init(mode: Mode, proof: String, publicKey: String? = nil, channel: String? = nil) {
+            self.mode = mode; self.proof = proof; self.publicKey = publicKey; self.channel = channel
         }
     }
 
@@ -65,6 +70,11 @@ public struct HelloPayload: Codable, Equatable, Sendable, ValidatablePayload {
         }
         guard (1...512).contains(auth.proof.count), Data(base64Encoded: auth.proof) != nil else {
             throw ProtocolError.invalid("auth.proof must be base64")
+        }
+        if let channel = auth.channel {
+            guard ["qr", "typed"].contains(channel) else {
+                throw ProtocolError.invalid("auth.channel must be 'qr' or 'typed'")
+            }
         }
         if let key = auth.publicKey {
             guard let decoded = Data(base64Encoded: key), decoded.count == 32 else {

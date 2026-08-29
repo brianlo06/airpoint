@@ -395,10 +395,13 @@ class App {
     const id = deviceId();
 
     let keyBytes;
+    let channel;
     if (this.credentials?.secretB64Url) {
       keyBytes = base64UrlToBytes(this.credentials.secretB64Url);
+      channel = 'qr';
     } else if (this.typedCode) {
       keyBytes = new TextEncoder().encode(this.typedCode);
+      channel = 'typed';
     } else {
       // No credential yet: ask for the six digits.
       $('connect-status').textContent = 'Pair this phone with your Mac';
@@ -412,7 +415,7 @@ class App {
       deviceName: deviceName(),
       platform: 'web',
       clientVersion: CLIENT_VERSION,
-      auth: { mode: 'code', proof },
+      auth: { mode: 'code', proof, channel },
     });
   }
 

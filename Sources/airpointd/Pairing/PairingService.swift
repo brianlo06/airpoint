@@ -30,6 +30,11 @@ final class PairingService {
     private weak var approver: PairingApprover?
 
     private var secret: PairingSecret
+    /// The generation immediately before `secret`. Kept only so that a failed proof can be
+    /// identified as "you used the previous code" rather than reported as a wrong code — a
+    /// scanned QR that has since rotated is otherwise indistinguishable from a typo, and
+    /// sends the user hunting for the wrong problem. It is never accepted for pairing.
+    private var previousSecret: PairingSecret?
     /// Set when a code has been consumed by a successful pairing, so it cannot be reused
     /// by a second device that also observed the QR.
     private var consumed = false
@@ -50,6 +55,7 @@ final class PairingService {
     func currentSecret() -> PairingSecret {
         queue.sync {
             if consumed || secret.isExpired() {
+                previousSecret = secret
                 secret = PairingSecret()
                 consumed = false
                 Log.debug("issued a fresh pairing code")
@@ -62,6 +68,7 @@ final class PairingService {
     @discardableResult
     func rotateSecret() -> PairingSecret {
         queue.sync {
+            previousSecret = secret
             secret = PairingSecret()
             consumed = false
             return secret
@@ -133,8 +140,24 @@ final class PairingService {
         }
         guard let channel = active.verify(proof: proof, nonce: nonce, deviceId: hello.deviceId) else {
             attempts.recordFailure(peer, now: now)
-            Log.warn("bad pairing proof from \(peer) (device \(Log.short(hello.deviceId)))")
-            completion(.rejected(ProtocolError(.pairRejected, "incorrect pairing code")))
+            let attempted = hello.auth.channel ?? "unknown"
+
+            // Distinguish a stale credential from a wrong one. Both fail, but only one of
+            // them means "look further up your terminal, you used the old QR code".
+            let usedPreviousGeneration = queue.sync { previousSecret }?
+                .verify(proof: proof, nonce: nonce, deviceId: hello.deviceId) != nil
+
+            if usedPreviousGeneration {
+                Log.warn("\(peer) presented the PREVIOUS pairing code (via \(attempted)). The code rotated; use the most recent one printed below.")
+                completion(.rejected(ProtocolError(.pairRejected,
+                    "That pairing code has expired. Use the newest code or QR shown on your Mac.")))
+            } else {
+                Log.warn("bad pairing proof from \(peer) via \(attempted) (device \(Log.short(hello.deviceId)))")
+                completion(.rejected(ProtocolError(.pairRejected,
+                    attempted == "qr"
+                        ? "That QR code did not match. Scan the newest one shown on your Mac."
+                        : "Incorrect pairing code.")))
+            }
             return
         }
         attempts.recordSuccess(peer)
