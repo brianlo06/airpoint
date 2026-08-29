@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="theme-color" content="#08090c">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>AirPoint Remote</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+
+<!-- Connection / pairing ------------------------------------------------- -->
+<section id="screen-connect" class="screen is-visible">
+  <div class="connect-inner">
+    <h1 class="brand">AirPoint</h1>
+    <p class="subtitle" id="connect-status">Connecting to your Mac…</p>
+
+    <div id="code-entry" class="code-entry is-hidden">
+      <label for="code-input">Enter the 6-digit code shown on your Mac</label>
+      <input id="code-input" inputmode="numeric" pattern="[0-9]*" maxlength="6"
+             autocomplete="off" autocorrect="off" spellcheck="false" placeholder="000000">
+      <button id="code-submit" class="btn btn-primary">Connect</button>
+      <p class="hint">Scanning the QR code instead is more secure — it also verifies
+         you are talking to the right Mac.</p>
+    </div>
+
+    <div id="motion-gate" class="is-hidden">
+      <p class="subtitle">One more step: this browser needs your permission to read the
+         phone's motion sensors.</p>
+      <button id="enable-motion" class="btn btn-primary btn-large">Enable motion</button>
+    </div>
+
+    <p id="connect-error" class="error is-hidden" role="alert"></p>
+  </div>
+</section>
+
+<!-- Remote --------------------------------------------------------------- -->
+<section id="screen-remote" class="screen">
+
+  <header class="statusbar">
+    <span class="dot" id="link-dot" aria-hidden="true"></span>
+    <span id="link-text">Connected</span>
+    <span class="spacer"></span>
+    <span id="latency" class="latency">— ms</span>
+    <button id="disconnect" class="btn btn-ghost btn-small">Disconnect</button>
+  </header>
+
+  <!-- Pointer ------------------------------------------------------------ -->
+  <div class="pane is-visible" id="pane-pointer">
+    <div class="pad" id="pad" role="application"
+         aria-label="Pointer pad. Hold to aim, tap to click, drag to scroll.">
+      <div class="pad-hint" id="pad-hint">
+        <strong>Hold anywhere</strong>
+        <span>then aim the phone</span>
+      </div>
+      <div class="pad-live is-hidden" id="pad-live">
+        <span class="pad-live-dot"></span> aiming
+      </div>
+    </div>
+
+    <div class="row">
+      <button class="btn" data-action="recenter">Recentre</button>
+      <button class="btn" data-action="calibrate">Calibrate</button>
+      <button class="btn" data-action="right-click">Right click</button>
+    </div>
+
+    <div class="slider-row">
+      <label for="sensitivity">Sensitivity</label>
+      <input type="range" id="sensitivity" min="0.25" max="3" step="0.05" value="1">
+      <output id="sensitivity-value">1.00×</output>
+    </div>
+  </div>
+
+  <!-- Media -------------------------------------------------------------- -->
+  <div class="pane" id="pane-media">
+    <div class="grid grid-3">
+      <button class="btn btn-tall" data-media="previous">⏮<span>Prev</span></button>
+      <button class="btn btn-tall btn-accent" data-media="play_pause">⏯<span>Play / Pause</span></button>
+      <button class="btn btn-tall" data-media="next">⏭<span>Next</span></button>
+    </div>
+    <div class="grid grid-2">
+      <button class="btn btn-tall" data-media="seek_back" data-amount="10">↺ 10s</button>
+      <button class="btn btn-tall" data-media="seek_forward" data-amount="10">10s ↻</button>
+    </div>
+    <div class="grid grid-3">
+      <button class="btn btn-tall" data-media="volume_down">🔉<span>Volume −</span></button>
+      <button class="btn btn-tall" data-media="mute">🔇<span>Mute</span></button>
+      <button class="btn btn-tall" data-media="volume_up">🔊<span>Volume +</span></button>
+    </div>
+    <div class="grid grid-2">
+      <button class="btn btn-tall" data-media="fullscreen_toggle">⛶<span>Fullscreen</span></button>
+      <button class="btn btn-tall" data-media="fullscreen_exit">✕<span>Exit fullscreen</span></button>
+    </div>
+    <p class="hint">Play/pause and volume use the Mac's media keys. Seek and fullscreen send
+       arrow keys and <kbd>F</kbd>, which most players understand — exact seek distance
+       varies by site.</p>
+  </div>
+
+  <!-- Keyboard ----------------------------------------------------------- -->
+  <div class="pane" id="pane-keyboard">
+    <div class="compose">
+      <input id="text-input" class="text-input" type="text"
+             autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+             placeholder="Type here, then Send">
+      <button id="text-send" class="btn btn-primary">Send</button>
+    </div>
+    <div class="grid grid-4">
+      <button class="btn" data-key="Escape">Esc</button>
+      <button class="btn" data-key="Tab">Tab</button>
+      <button class="btn" data-key="Backspace">⌫</button>
+      <button class="btn" data-key="Return">↵</button>
+    </div>
+    <div class="dpad">
+      <button class="btn dpad-up" data-key="ArrowUp">▲</button>
+      <button class="btn dpad-left" data-key="ArrowLeft">◀</button>
+      <button class="btn dpad-down" data-key="ArrowDown">▼</button>
+      <button class="btn dpad-right" data-key="ArrowRight">▶</button>
+    </div>
+    <div class="grid grid-3">
+      <button class="btn" data-key="c" data-mods="cmd">Copy</button>
+      <button class="btn" data-key="v" data-mods="cmd">Paste</button>
+      <button class="btn" data-key="a" data-mods="cmd">Select all</button>
+    </div>
+  </div>
+
+  <!-- Browser ------------------------------------------------------------ -->
+  <div class="pane" id="pane-browser">
+    <div class="compose">
+      <input id="address-input" class="text-input" type="text"
+             autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+             placeholder="Search or enter address">
+      <button id="address-go" class="btn btn-primary">Go</button>
+    </div>
+    <div class="grid grid-3">
+      <button class="btn btn-tall" data-key="bracketLeft" data-mods="cmd">◀<span>Back</span></button>
+      <button class="btn btn-tall" data-key="bracketRight" data-mods="cmd">▶<span>Forward</span></button>
+      <button class="btn btn-tall" data-key="r" data-mods="cmd">⟳<span>Reload</span></button>
+    </div>
+    <div class="grid grid-3">
+      <button class="btn btn-tall" data-key="t" data-mods="cmd">＋<span>New tab</span></button>
+      <button class="btn btn-tall" data-key="w" data-mods="cmd">✕<span>Close tab</span></button>
+      <button class="btn btn-tall" data-key="Tab" data-mods="ctrl">⇥<span>Next tab</span></button>
+    </div>
+    <div class="grid grid-2">
+      <button class="btn btn-tall" data-key="Tab" data-mods="ctrl,shift">⇤<span>Previous tab</span></button>
+      <button class="btn btn-tall" data-key="h" data-mods="cmd,shift">⌂<span>Home</span></button>
+    </div>
+  </div>
+
+  <nav class="tabbar" role="tablist">
+    <button class="tab is-active" data-pane="pointer" role="tab">Pointer</button>
+    <button class="tab" data-pane="media" role="tab">Media</button>
+    <button class="tab" data-pane="keyboard" role="tab">Keys</button>
+    <button class="tab" data-pane="browser" role="tab">Browser</button>
+  </nav>
+
+  <div class="toast is-hidden" id="toast" role="status"></div>
+</section>
+
+<script type="module" src="/app.js"></script>
+</body>
+</html>

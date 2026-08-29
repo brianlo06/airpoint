@@ -1,0 +1,11 @@
+{
+  "name": "AirPoint Remote",
+  "short_name": "AirPoint",
+  "description": "Motion-controlled remote for your Mac",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#08090c",
+  "theme_color": "#08090c"
+}
