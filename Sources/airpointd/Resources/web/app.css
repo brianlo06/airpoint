@@ -218,6 +218,18 @@ input[type="range"] { flex: 1; height: 36px; accent-color: var(--accent); }
 .dpad-down { grid-area: down; }
 .dpad-right { grid-area: right; }
 
+/* Diagnostics. Deliberately always visible rather than hidden behind a debug flag:
+   when pointing does not work, the first question is always "are the sensors firing",
+   and the answer should not require a laptop and a console. */
+.diag {
+  margin: 0;
+  padding: 0 4px;
+  font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.diag.is-bad { color: var(--warn); }
+
 kbd {
   font: inherit;
   font-size: 12px;

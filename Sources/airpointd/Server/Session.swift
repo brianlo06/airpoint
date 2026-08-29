@@ -39,6 +39,15 @@ final class ClientConnection {
     private var malformedFrames = 0
     private var rejectedFrames = 0
     private var lastRateLimitNoticeAt: [ClientEventType: Date] = [:]
+
+    // Motion telemetry. The useful diagnostic is not "how many packets" but "did any motion
+    // ever arrive": a phone whose sensors are blocked connects, pairs and clicks perfectly
+    // while the cursor never moves, and that looks identical to a broken server.
+    private var pointerFrameCount = 0
+    private var pointerPixelsMoved = 0.0
+    private var authenticatedAt: Date?
+    private var announcedMotion = false
+    private var warnedAboutMissingMotion = false
     private var lastInboundAt = Date()
     private var sessionExpiresAt = Date().addingTimeInterval(Limits.sessionLifetime)
     private var timer: DispatchSourceTimer?
@@ -106,6 +115,7 @@ final class ClientConnection {
                     self.close(code: .policyViolation, reason: "auth timeout")
                 }
             case .authenticated:
+                self.warnIfNoMotion(now: now)
                 if now.timeIntervalSince(self.lastInboundAt) > Limits.idleTimeout {
                     Log.info("closing idle session with '\(self.deviceName ?? "device")'")
                     self.close(code: .goingAway, reason: "idle")
@@ -311,6 +321,18 @@ final class ClientConnection {
 
     /// Frames rejected before decoding never reach the rate limiter, so they get their own
     /// budget. Without it, a client could flood invalid frames indefinitely at no cost.
+    /// A session that is alive and sending frames but has never sent a pointer delta means
+    /// the phone's sensors are not reaching the page. Saying so beats leaving the user to
+    /// wonder whether the Mac, the network or the phone is at fault.
+    private func warnIfNoMotion(now: Date) {
+        guard !warnedAboutMissingMotion, !announcedMotion,
+              let since = authenticatedAt, now.timeIntervalSince(since) > 15 else { return }
+        warnedAboutMissingMotion = true
+        Log.warn("""
+        connected to '\(deviceName ?? "device")' for 15s but no cursor motion has arrived.         Other controls will still work. On the phone: check the page is on https://, that you         tapped "Enable motion" and allowed the prompt, and that you are holding a finger on         the pad — motion is only live while the pad is held.
+        """)
+    }
+
     private func noteRateLimited(_ type: ClientEventType, error: ProtocolError) {
         let now = Date()
         if let last = lastRateLimitNoticeAt[type], now.timeIntervalSince(last) < 1 { return }
@@ -354,6 +376,12 @@ final class ClientConnection {
             guard message.seq == 0 || message.seq >= lastAppliedPointerSeq else { return }
             lastAppliedPointerSeq = message.seq
             guard requirePermission() else { return }
+            pointerFrameCount += 1
+            pointerPixelsMoved += abs(move.dx) + abs(move.dy)
+            if !announcedMotion, pointerPixelsMoved > 20 {
+                announcedMotion = true
+                Log.info("motion input is flowing from '\(deviceName ?? "device")'")
+            }
             executor.moveCursor(dx: move.dx, dy: move.dy)
 
         case .leftClick(let click):
@@ -447,6 +475,7 @@ final class ClientConnection {
 
     private func completeAuthentication() {
         phase = .authenticated
+        authenticatedAt = Date()
         sessionExpiresAt = Date().addingTimeInterval(Limits.sessionLifetime)
         server?.grantPointer(to: self)
 
@@ -535,6 +564,9 @@ final class ClientConnection {
         timer = nil
         assembler.reset()
         buffer.removeAll()
+        if pointerFrameCount > 0 {
+            Log.info("session summary: \(pointerFrameCount) pointer frames, \(Int(pointerPixelsMoved)) px of travel")
+        }
         connection.cancel()
         server?.remove(self)
     }

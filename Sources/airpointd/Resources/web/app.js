@@ -233,6 +233,9 @@ class Sensors extends EventTarget {
     this.rotationRate = null;
     this.accelerationG = null;
     this.lastSampleAt = 0;
+    this.sampleCount = 0;
+    this.started = false;
+    this.permissionState = 'unknown';
     this._onOrientation = this._onOrientation.bind(this);
     this._onMotion = this._onMotion.bind(this);
   }
@@ -251,18 +254,29 @@ class Sensors extends EventTarget {
   static async requestPermission() {
     if (!Sensors.needsPermission) return 'granted';
     try {
-      return await DeviceOrientationEvent.requestPermission();
+      const orientation = await DeviceOrientationEvent.requestPermission();
+      // `devicemotion` is a separate grant from `deviceorientation` on iOS. Orientation
+      // drives pointing; motion only supplies the stationary-bias estimator, so a refusal
+      // here degrades drift correction rather than breaking the cursor.
+      if (typeof DeviceMotionEvent !== 'undefined'
+          && typeof DeviceMotionEvent.requestPermission === 'function') {
+        try { await DeviceMotionEvent.requestPermission(); } catch { /* optional */ }
+      }
+      return orientation;
     } catch (error) {
       return 'denied';
     }
   }
 
   start() {
+    if (this.started) return;   // guard: two code paths can reach here
+    this.started = true;
     window.addEventListener('deviceorientation', this._onOrientation, { passive: true });
     window.addEventListener('devicemotion', this._onMotion, { passive: true });
   }
 
   stop() {
+    this.started = false;
     window.removeEventListener('deviceorientation', this._onOrientation);
     window.removeEventListener('devicemotion', this._onMotion);
   }
@@ -275,6 +289,7 @@ class Sensors extends EventTarget {
     if (event.alpha === null || event.beta === null || event.gamma === null) return;
     this.attitude = quatFromDeviceOrientation(event.alpha, event.beta, event.gamma);
     this.lastSampleAt = performance.now();
+    this.sampleCount += 1;
     this.dispatchEvent(new Event('sample'));
   }
 
@@ -305,7 +320,11 @@ class App {
     this.calibrator = new Calibrator();
     this.credentials = readPairingFragment();
     this.calibrating = false;
+    this.sensorsAttached = false;
     this.sendTimer = null;
+    this.diagTimer = null;
+    this.sentFrames = 0;
+    this.lastSentDelta = { dx: 0, dy: 0 };
 
     this.pipeline.setActive(false);
     this._restoreSensitivity();
@@ -407,6 +426,7 @@ class App {
       toast('Grant Accessibility permission on the Mac');
     }
     this._startSendLoop();
+    this._startDiagnostics();
     this._ensureMotion();
   }
 
@@ -449,8 +469,32 @@ class App {
       $('motion-gate').classList.remove('is-hidden');
       return;
     }
+    this._attachSensors();
+  }
+
+  // iOS does not reliably carry a motion grant across page loads, so "we stored that it was
+  // granted once" is not evidence that events will arrive. Attaching is therefore always
+  // safe to retry, and the diagnostics loop offers a re-prompt when nothing shows up.
+  _attachSensors() {
+    if (this.sensorsAttached) {
+      this.sensors.start();
+      return;
+    }
+    this.sensorsAttached = true;
     this.sensors.start();
     this.sensors.addEventListener('sample', () => this._onSensorSample());
+  }
+
+  async _promptForMotion() {
+    const state = await Sensors.requestPermission();
+    if (state !== 'granted') {
+      toast('Motion access was denied');
+      localStorage.removeItem('airpoint.motionGranted');
+      return false;
+    }
+    localStorage.setItem('airpoint.motionGranted', 'yes');
+    this._attachSensors();
+    return true;
   }
 
   _onSensorSample() {
@@ -470,6 +514,38 @@ class App {
     });
   }
 
+  _startDiagnostics() {
+    clearInterval(this.diagTimer);
+    let lastCount = 0;
+    let lastAt = performance.now();
+    this.diagTimer = setInterval(() => {
+      const now = performance.now();
+      const elapsed = (now - lastAt) / 1000;
+      const hz = elapsed > 0 ? Math.round((this.sensors.sampleCount - lastCount) / elapsed) : 0;
+      lastCount = this.sensors.sampleCount;
+      lastAt = now;
+
+      const el = $('diag');
+      if (!el) return;
+
+      let problem = null;
+      if (!Sensors.isAvailable) problem = 'this browser exposes no motion sensors';
+      else if (hz === 0) problem = 'no sensor data reaching the page';
+
+      const d = this.lastSentDelta;
+      el.textContent = problem
+        ? `⚠ ${problem}`
+        : `sensors ${hz} Hz · clutch ${this.pipeline.isActive ? 'ON' : 'off'} · `
+          + `Δ ${d.dx.toFixed(1)},${d.dy.toFixed(1)} · sent ${this.sentFrames}`;
+      el.classList.toggle('is-bad', problem !== null);
+
+      // Offer the remedy, not just the diagnosis. A permission prompt needs a user gesture,
+      // so the only thing that can recover this state is a button the user can tap.
+      const fix = $('diag-fix');
+      if (fix) fix.classList.toggle('is-hidden', !(problem && Sensors.needsPermission));
+    }, 500);
+  }
+
   _startSendLoop() {
     clearInterval(this.sendTimer);
     this.sendTimer = setInterval(() => {
@@ -481,6 +557,8 @@ class App {
         dx: Math.round(delta.dx * 100) / 100,
         dy: Math.round(delta.dy * 100) / 100,
       });
+      this.lastSentDelta = delta;
+      this.sentFrames += 1;
       this._updateLatency();
     }, 1000 / SEND_HZ);
   }
@@ -558,6 +636,14 @@ class App {
       else this.transport.connect();
     });
 
+    $('diag-fix').addEventListener('click', async () => {
+      haptic(12);
+      if (await this._promptForMotion()) {
+        toast('Motion enabled');
+        setTimeout(() => this._startCalibration(), 400);
+      }
+    });
+
     $('enable-motion').addEventListener('click', async () => {
       const state = await Sensors.requestPermission();
       if (state !== 'granted') {
@@ -572,8 +658,7 @@ class App {
       $('motion-gate').classList.add('is-hidden');
       $('screen-connect').classList.remove('is-visible');
       $('screen-remote').classList.add('is-visible');
-      this.sensors.start();
-      this.sensors.addEventListener('sample', () => this._onSensorSample());
+      this._attachSensors();
       setTimeout(() => this._startCalibration(), 400);
     });
 
