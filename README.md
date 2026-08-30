@@ -88,6 +88,10 @@ Click into a text field on the Mac and the phone offers **"Text field focused on
 tap to open the keyboard"**. One tap raises it, because iOS will not open a keyboard without
 a user gesture; a programmatic `focus()` from a network message silently does nothing.
 
+While the keyboard is up, a floating bar sits directly above it with **Enter**, **Esc** and
+**Done** — the iOS keyboard covers the tab bar and most of the Keys pane, so buttons that
+live in the page are unreachable exactly when you want them.
+
 Typing is then live: characters reach the Mac as you type, not on a Send button. The phone's
 field is a local mirror, which is what lets autocorrect and predictive text work — those
 replace whole words at once, so the difference is turned into the right number of backspaces
@@ -178,6 +182,13 @@ Sensitivity slider in Pointer mode; it persists.
 **The Mac's IP changed.**
 Restart the daemon so the certificate and QR code match the new address. Trusted devices can
 reconnect via `<hostname>.local`, which does not change.
+
+**The keyboard prompt never appears.**
+Focus detection reads the accessibility role of the focused control. Safari and native apps
+expose their text fields; **Chrome and Electron apps do not expose web content to
+accessibility by default**, so a text box inside them is invisible to this and no prompt
+appears. The Keys tab always works regardless. Run with `--log-level debug` to see which
+roles are being observed.
 
 **Motion does not work at all in the browser.**
 Check the page is on `https://` and that you tapped *Enable motion*. Motion sensors are a

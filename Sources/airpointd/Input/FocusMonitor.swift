@@ -1,5 +1,6 @@
 import Foundation
 import ApplicationServices
+import RemoteKit
 
 /// Reports whether the Mac's focused UI element accepts typed text.
 ///
@@ -36,9 +37,20 @@ final class FocusMonitor {
     private let queue = DispatchQueue(label: "com.airpoint.focus")
     private var timer: DispatchSourceTimer?
     private var lastValue: Bool?
+    /// The element that last held focus.
+    ///
+    /// Tracked because reporting only when the *boolean* changes is not enough: moving from
+    /// one text field to another leaves it true, so nothing is sent. In practice the first
+    /// thing focused is the Terminal the daemon runs in — itself a text area — so the phone
+    /// would be told once at connect and then never again when the user actually clicked
+    /// into a search box.
+    private var lastElement: AXUIElement?
 
     /// Called only when the answer changes, on `queue`.
     private let onChange: (Bool) -> Void
+
+    /// Roles seen so far, so an unrecognised one is reported once rather than every poll.
+    private var reportedRoles: Set<String> = []
 
     init(onChange: @escaping (Bool) -> Void) {
         self.onChange = onChange
@@ -60,32 +72,58 @@ final class FocusMonitor {
             self?.timer?.cancel()
             self?.timer = nil
             self?.lastValue = nil
+            self?.lastElement = nil
         }
     }
 
     private func poll() {
-        let isTextInput = currentRole().map(Self.textRoles.contains) ?? false
-        guard isTextInput != lastValue else { return }
+        let element = focusedElement()
+        let role = element.flatMap(role(of:))
+        let isTextInput = role.map(Self.textRoles.contains) ?? false
+
+        // Debug only, so the default promise — that nothing about the host's UI is written
+        // anywhere — holds. A role is a control *type*, never its contents, but it is still
+        // more than the daemon needs to say out loud unless someone is debugging.
+        if let role, !reportedRoles.contains(role) {
+            reportedRoles.insert(role)
+            Log.debug("focus: role '\(role)' \(isTextInput ? "accepts" : "does not accept") text")
+        }
+
+        let elementChanged = !sameElement(lastElement, element)
+        let decision = FocusDecision.decide(previousValue: lastValue,
+                                            elementChanged: elementChanged,
+                                            isTextInput: isTextInput)
+        lastElement = element
         lastValue = isTextInput
-        onChange(isTextInput)
+
+        guard let decision else { return }
+        Log.debug("focus: text input \(decision ? "took" : "lost") focus")
+        onChange(decision)
     }
 
-    /// The focused element's role, or nil if there is no focused element or the query fails.
-    private func currentRole() -> String? {
-        var focused: CFTypeRef?
-        let focusStatus = AXUIElementCopyAttributeValue(
-            systemWide, kAXFocusedUIElementAttribute as CFString, &focused)
-        guard focusStatus == .success, let focusedRef = focused else { return nil }
+    private func sameElement(_ lhs: AXUIElement?, _ rhs: AXUIElement?) -> Bool {
+        switch (lhs, rhs) {
+        case (nil, nil): return true
+        case let (l?, r?): return CFEqual(l, r)
+        default: return false
+        }
+    }
 
+    private func focusedElement() -> AXUIElement? {
+        var focused: CFTypeRef?
+        let status = AXUIElementCopyAttributeValue(
+            systemWide, kAXFocusedUIElementAttribute as CFString, &focused)
+        guard status == .success, let focusedRef = focused else { return nil }
         // CFGetTypeID rather than a force cast: a failed query can hand back something that
         // is not an AXUIElement, and crashing the daemon over a focus poll would be absurd.
         guard CFGetTypeID(focusedRef) == AXUIElementGetTypeID() else { return nil }
-        let element = focusedRef as! AXUIElement
+        return (focusedRef as! AXUIElement)
+    }
 
+    private func role(of element: AXUIElement) -> String? {
         var role: CFTypeRef?
-        let roleStatus = AXUIElementCopyAttributeValue(
-            element, kAXRoleAttribute as CFString, &role)
-        guard roleStatus == .success else { return nil }
+        let status = AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &role)
+        guard status == .success else { return nil }
         return role as? String
     }
 }

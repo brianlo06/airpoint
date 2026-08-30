@@ -551,7 +551,15 @@ final class ClientConnection {
     }
 
     private func startFocusMonitoring() {
-        guard focusDetection, executor.hasPermission, !dryRun else { return }
+        guard focusDetection else {
+            Log.debug("focus detection disabled by configuration")
+            return
+        }
+        guard executor.hasPermission, !dryRun else {
+            Log.debug("focus detection unavailable (accessibility=\(executor.hasPermission), dryRun=\(dryRun))")
+            return
+        }
+        Log.debug("focus detection started")
         let monitor = FocusMonitor { [weak self] isTextInput in
             guard let self else { return }
             self.queue.async {
@@ -646,5 +654,5 @@ enum AirPoint {
     /// Version of the controller bundled in Resources/web. Kept separate from the server
     /// version because they are updated for different reasons and compared against
     /// different things.
-    static let controllerVersion = "0.1.9"
+    static let controllerVersion = "0.2.0"
 }

@@ -27,7 +27,7 @@ const PROTOCOL_VERSION = 1;
 // against its own version and says so when they differ: a phone holding a stale page in a
 // backgrounded tab reconnects silently over WebSocket and looks perfectly healthy while
 // running months-old code.
-const CLIENT_VERSION = '0.1.9';
+const CLIENT_VERSION = '0.2.0';
 const SEND_HZ = 60;
 const PING_INTERVAL_MS = 2000;
 // Never let a queued motion delta accumulate: by the time a backed-up frame is delivered
@@ -514,12 +514,48 @@ class App {
     const prompt = $('type-prompt');
     const alreadyTyping = document.activeElement === $('text-input');
 
+    clearTimeout(this.promptTimer);
     if (!isTextInput || alreadyTyping) {
       prompt.classList.add('is-hidden');
       return;
     }
-    if (prompt.classList.contains('is-hidden')) haptic(12);
+    haptic(12);
     prompt.classList.remove('is-hidden');
+    // Not sticky: if it is ignored, it is not what the user wanted. Clicking into another
+    // field brings it straight back, since the host reports each newly focused control.
+    this.promptTimer = setTimeout(() => prompt.classList.add('is-hidden'), 8000);
+  }
+
+  // Keeps the floating key bar sitting on top of the iOS keyboard.
+  //
+  // visualViewport is the only reliable way to know where the keyboard actually is: the
+  // layout viewport does not change when it appears, so anything positioned against the
+  // bottom of the page ends up underneath it.
+  _wireKeyboardBar() {
+    const bar = $('keyboard-bar');
+    const input = $('text-input');
+    const viewport = window.visualViewport;
+
+    const place = () => {
+      if (bar.classList.contains('is-hidden')) return;
+      if (!viewport) {
+        bar.style.bottom = '12px';
+        return;
+      }
+      const gap = window.innerHeight - (viewport.height + viewport.offsetTop);
+      bar.style.bottom = `${Math.max(gap, 0) + 8}px`;
+    };
+
+    input.addEventListener('focus', () => {
+      bar.classList.remove('is-hidden');
+      place();
+    });
+    input.addEventListener('blur', () => bar.classList.add('is-hidden'));
+
+    if (viewport) {
+      viewport.addEventListener('resize', place);
+      viewport.addEventListener('scroll', place);
+    }
   }
 
   _openKeyboard() {
@@ -931,6 +967,31 @@ class App {
       this.lastTypedValue = '';
       haptic(15);
     });
+
+    const sendReturn = () => {
+      this.transport.send('key_press', { key: 'Return', mods: [] });
+      textInput.value = '';
+      this.lastTypedValue = '';
+      haptic(15);
+    };
+    $('text-enter').addEventListener('click', sendReturn);
+    $('bar-enter').addEventListener('pointerdown', (event) => {
+      // pointerdown, and preventDefault, so the field never loses focus — a blur would
+      // dismiss the iOS keyboard on every press.
+      event.preventDefault();
+      sendReturn();
+    }, { passive: false });
+    $('bar-escape').addEventListener('pointerdown', (event) => {
+      event.preventDefault();
+      this.transport.send('key_press', { key: 'Escape', mods: [] });
+      haptic(12);
+    }, { passive: false });
+    $('bar-done').addEventListener('pointerdown', (event) => {
+      event.preventDefault();
+      textInput.blur();
+    }, { passive: false });
+
+    this._wireKeyboardBar();
 
     // Clears only the phone's mirror. Wiping the Mac's field instead would be a surprising
     // amount of destruction to hang on a button labelled "Clear".

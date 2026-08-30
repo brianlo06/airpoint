@@ -129,10 +129,13 @@
   <div class="pane" id="pane-keyboard">
     <p class="live-note" id="live-note">Characters are sent as you type.</p>
     <div class="compose">
-      <input id="text-input" class="text-input" type="text"
+      <input id="text-input" class="text-input" type="text" enterkeyhint="search"
              autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
              placeholder="Type — it appears on the Mac">
-      <button id="text-clear" class="btn">Clear</button>
+    </div>
+    <div class="row">
+      <button id="text-enter" class="btn btn-primary btn-enter">Enter ↵</button>
+      <button id="text-clear" class="btn btn-clear">Clear</button>
     </div>
     <div class="grid grid-4">
       <button class="btn" data-key="Escape">Esc</button>
@@ -188,6 +191,13 @@
     <strong>Text field focused on your Mac</strong>
     <span>Tap to open the keyboard</span>
   </button>
+
+  <!-- Sits above the iOS keyboard, so Enter is reachable without dismissing it first. -->
+  <div class="keyboard-bar is-hidden" id="keyboard-bar">
+    <button class="btn btn-primary" id="bar-enter">Enter ↵</button>
+    <button class="btn" id="bar-escape">Esc</button>
+    <button class="btn" id="bar-done">Done</button>
+  </div>
 
   <div class="toast is-hidden" id="toast" role="status"></div>
 </section>

@@ -25,6 +25,9 @@ const args = Object.fromEntries(
 );
 
 const host = args.host ?? '127.0.0.1';
+// Keeps the session open after the assertions, for observing host-side behaviour that only
+// happens while a client is connected — focus reporting, idle timeouts, and the like.
+const holdSeconds = Number(args.hold ?? 0);
 const port = args.port ?? '8443';
 const code = args.code;
 if (!code) {
@@ -202,13 +205,27 @@ socket.addEventListener('open', async () => {
     check('a click still works during a pointer flood',
       !received.slice(clickMark).some((m) => m.d?.code === 'rate_limited'));
 
-    // --- Version gate ---
+    // --- Version gate --- (skipped when holding, since it ends the session)
+    if (holdSeconds > 0) {
+      console.log(`\n  holding the session open for ${holdSeconds}s — switch apps now`);
+      await sleep(holdSeconds * 1000);
+      if (socket.readyState === WebSocket.OPEN) socket.close(1000);
+      return;
+    }
     const versionMark = received.length;
     socket.send(JSON.stringify({ v: 2, t: 'ping', seq: ++seq, ts: Date.now(), d: { id: 1 } }));
     await sleep(200);
     const versionError = received.slice(versionMark).find((m) => m.t === 'error');
     check('refuses an unsupported protocol version',
       versionError?.d?.code === 'unsupported_version' && versionError.d.fatal === true);
+
+    if (holdSeconds > 0) {
+      console.log(`\n  holding the session open for ${holdSeconds}s — switch apps now`);
+      // Skip the version-gate assertion, which deliberately provokes a fatal close.
+      await sleep(holdSeconds * 1000);
+      if (socket.readyState === WebSocket.OPEN) socket.close(1000);
+      return;
+    }
 
     await sleep(300);
     if (socket.readyState === WebSocket.OPEN) socket.close(1000);

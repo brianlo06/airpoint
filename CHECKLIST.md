@@ -78,6 +78,11 @@ Anything marked **done** has been built *and* exercised, either by `swift test` 
       executor still treats momentum frames as ordinary scrolls)
 - [x] Live incremental typing instead of tap-to-send, autocorrect- and emoji-safe
 - [x] Keyboard prompt driven by the Mac's focused-element role
+- [x] Floating Enter/Esc/Done bar pinned above the iOS keyboard via visualViewport
+- [ ] Chrome and Electron do not expose web content to accessibility by default, so the
+      keyboard prompt does not fire for text fields inside them. Setting `AXManualAccessibility`
+      on those apps would fix it but turns on their full accessibility tree — a much broader
+      action than this feature justifies, so it is documented rather than done.
 
 ## Phase 6 — Native iOS client — not started
 

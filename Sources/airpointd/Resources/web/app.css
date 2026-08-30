@@ -369,6 +369,30 @@ kbd {
 
 .live-note { margin: 0 0 2px; padding: 0 4px; font-size: 12px; color: var(--text-dim); }
 
+/* A floating bar for the keys you need *while* the iOS keyboard is up.
+ *
+ * The keyboard covers the lower half of the viewport, including the tab bar and most of the
+ * Keys pane, so an Enter button that lives in the page is unreachable exactly when it is
+ * wanted. This is pinned to the visual viewport instead and follows the keyboard up. */
+.keyboard-bar {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  gap: 8px;
+  padding: 8px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+  z-index: 30;
+}
+.keyboard-bar .btn { min-height: 48px; }
+
+.btn-enter { flex: 2; }
+.btn-clear { flex: 1; }
+
 /* --- Toast -------------------------------------------------------------- */
 
 .toast {
