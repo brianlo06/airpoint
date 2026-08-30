@@ -51,15 +51,24 @@
 
   <!-- Pointer ------------------------------------------------------------ -->
   <div class="pane is-visible" id="pane-pointer">
-    <div class="pad" id="pad" role="application"
-         aria-label="Pointer pad. Hold to aim, tap to click, drag to scroll.">
-      <div class="pad-hint" id="pad-hint">
-        <strong>Hold anywhere</strong>
-        <span>then aim the phone</span>
-        <span class="pad-hint-sub">keep holding — use Click below with your other thumb</span>
+    <div class="pad-row">
+      <div class="pad" id="pad" role="application"
+           aria-label="Pointer pad. Hold to aim, tap to click, drag to scroll.">
+        <div class="pad-hint" id="pad-hint">
+          <strong>Hold anywhere</strong>
+          <span>then aim the phone</span>
+          <span class="pad-hint-sub">keep holding — use Click below with your other thumb</span>
+        </div>
+        <div class="pad-live is-hidden" id="pad-live">
+          <span class="pad-live-dot"></span> aiming
+        </div>
       </div>
-      <div class="pad-live is-hidden" id="pad-live">
-        <span class="pad-live-dot"></span> aiming
+
+      <div class="scroll-strip" id="scroll-strip" role="scrollbar"
+           aria-label="Scroll strip. Drag or flick to scroll the page.">
+        <span class="scroll-arrow">▲</span>
+        <span class="scroll-label">SCROLL</span>
+        <span class="scroll-arrow">▼</span>
       </div>
     </div>
 

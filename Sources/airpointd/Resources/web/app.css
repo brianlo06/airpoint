@@ -121,9 +121,42 @@ body {
 
 /* --- Pointer pad -------------------------------------------------------- */
 
+.pad-row {
+  display: flex;
+  gap: 8px;
+  flex: 1;
+  min-height: 0;
+}
+
+/* Scrolling gets its own surface. Sharing the pad meant every scroll had to begin by
+   engaging the aim clutch and then travelling far enough to be recognised as a drag —
+   cramped, slow, and in direct competition with pointing. A dedicated strip is always
+   unambiguous and can be flicked like a wheel. */
+.scroll-strip {
+  flex: 0 0 68px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 0;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  color: var(--text-dim);
+  transition: background 90ms ease, border-color 90ms ease;
+}
+.scroll-strip.is-active { background: var(--accent-dim); border-color: var(--accent); color: var(--text); }
+.scroll-arrow { font-size: 15px; }
+.scroll-label {
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.14em;
+  writing-mode: vertical-rl;
+}
+
 .pad {
   flex: 1;
-  min-height: 200px;
+  min-height: 0;
   position: relative;
   display: grid;
   place-items: center;
@@ -326,7 +359,8 @@ kbd {
 /* Landscape: the pad shrinks so the controls stay reachable rather than
    scrolling off the bottom of a short viewport. */
 @media (orientation: landscape) and (max-height: 460px) {
-  .pad { min-height: 110px; }
+  .pad { min-height: 90px; }
+  .scroll-strip { flex-basis: 56px; padding: 8px 0; }
   .btn-tall { min-height: 56px; font-size: 18px; }
   .tab { min-height: 46px; }
 }

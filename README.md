@@ -62,6 +62,12 @@ no network egress, no telemetry.
 | Hold 500 ms | Begin drag; ends on lift |
 | Drag a finger | Scroll (pointing suspends so the two do not fight) |
 
+| Scroll strip, right of the pad | Does |
+|---|---|
+| Drag | Scroll, 4× your finger travel |
+| Flick | Scroll with momentum, gliding to a stop |
+| Touch during a glide | Stop dead |
+
 | Trigger row, below the pad | Does |
 |---|---|
 | Tap **Click** | Left click — **while you keep aiming** |
@@ -74,9 +80,9 @@ Pointing comes from moving the *phone*, so finger travel on the pad is free to m
 here: it makes drift, accidental movement, the phone-rings case and screen-lock all
 non-problems, because motion is only live while your thumb is down.
 
-The triggers live **off** the pad for exactly that reason — lifting a finger from the pad to
-tap is what stops the aim. One thumb holds the aim, the other clicks, and multi-touch keeps
-them independent. Or lock the aim on and use the pad for scrolling.
+The triggers and the scroll strip live **off** the pad for exactly that reason — lifting a
+finger from the pad to tap is what stops the aim. One thumb holds the aim, the other clicks
+or scrolls, and multi-touch keeps them independent.
 
 ---
 

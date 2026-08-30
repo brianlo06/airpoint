@@ -51,6 +51,7 @@ Anything marked **done** has been built *and* exercised, either by `swift test` 
       markedly worse than pitch
 - [x] Gyro axis convention resolved from physics; confirmed working on a real iPhone
 - [x] Dedicated click/right-click triggers off the pad, so clicking does not break the aim
+- [x] Dedicated scroll strip with flick momentum, off the pad for the same reason
 - [ ] Tune gain/acceleration against a real hand — current values are still synthetic
 - [ ] Smoothness pass: measure frame-rate variance on device (observed 27–50 Hz, want steady 60)
 
@@ -73,7 +74,8 @@ Anything marked **done** has been built *and* exercised, either by `swift test` 
 - [ ] Per-site keymap profiles (YouTube / Netflix / Disney+ / Prime / Spotify)
 - [ ] Accurate seek intervals per site, replacing the 5-second-per-press approximation
 - [ ] CoreHaptics-quality feedback (currently `navigator.vibrate`, ignored by iOS Safari)
-- [ ] Momentum scrolling with proper phase flags
+- [ ] Map the `momentum` flag onto macOS continuous-scroll phases (the client sets it; the
+      executor still treats momentum frames as ordinary scrolls)
 - [ ] Text field with live incremental send instead of tap-to-send
 
 ## Phase 6 — Native iOS client — not started

@@ -26,7 +26,7 @@ const PROTOCOL_VERSION = 1;
 // against its own version and says so when they differ: a phone holding a stale page in a
 // backgrounded tab reconnects silently over WebSocket and looks perfectly healthy while
 // running months-old code.
-const CLIENT_VERSION = '0.1.7';
+const CLIENT_VERSION = '0.1.8';
 const SEND_HZ = 60;
 const PING_INTERVAL_MS = 2000;
 // Never let a queued motion delta accumulate: by the time a backed-up frame is delivered
@@ -876,8 +876,104 @@ class App {
 
     this._wireAimLock();
     this._wireTriggers();
+    this._wireScrollStrip();
     this._wirePad();
     this._wireLifecycle();
+  }
+
+  // The scroll strip.
+  //
+  // Scrolling used to share the pad, which meant every scroll began by engaging the aim
+  // clutch and then travelling far enough to be reclassified as a drag. Cramped, slow, and
+  // competing directly with pointing. On its own surface it is unambiguous, needs no
+  // threshold, and never touches the clutch.
+  //
+  // Flicks carry momentum, because scrolling a streaming site's shelf of thumbnails with
+  // finger-length drags is miserable.
+  _wireScrollStrip() {
+    const strip = $('scroll-strip');
+    // Finger travel is multiplied because a thumb's reach is far shorter than a page.
+    const GAIN = 4;
+    const FRICTION = 0.94;            // per frame; ~0.5 s of glide from a firm flick
+    const MIN_VELOCITY = 40;          // px/s, below which the glide stops
+    const MAX_VELOCITY = 6000;
+
+    let lastY = 0;
+    let lastMoveAt = 0;
+    let velocity = 0;                 // px/s, in page pixels
+    let momentumFrame = null;
+
+    const stopMomentum = () => {
+      if (momentumFrame !== null) cancelAnimationFrame(momentumFrame);
+      momentumFrame = null;
+    };
+
+    const emit = (dy, momentum) => {
+      // Round first: a momentum frame worth less than half a pixel is a wasted packet, and
+      // at 60 Hz that is most of the tail of every glide.
+      const rounded = Math.round(dy);
+      if (!rounded) return;
+      this.transport.send('scroll', { dx: 0, dy: rounded, unit: 'px', momentum });
+    };
+
+    const glide = () => {
+      momentumFrame = requestAnimationFrame(glide);
+      velocity *= FRICTION;
+      if (Math.abs(velocity) < MIN_VELOCITY) {
+        stopMomentum();
+        return;
+      }
+      emit(velocity / 60, true);
+    };
+
+    strip.addEventListener('pointerdown', (event) => {
+      event.preventDefault();
+      stopMomentum();
+      strip.classList.add('is-active');
+      if (strip.setPointerCapture) {
+        try { strip.setPointerCapture(event.pointerId); } catch { /* not critical */ }
+      }
+      lastY = event.clientY;
+      lastMoveAt = performance.now();
+      velocity = 0;
+      haptic(8);
+    }, { passive: false });
+
+    strip.addEventListener('pointermove', (event) => {
+      if (!strip.classList.contains('is-active')) return;
+      event.preventDefault();
+      const now = performance.now();
+      const step = (event.clientY - lastY) * GAIN;
+      const dt = (now - lastMoveAt) / 1000;
+      lastY = event.clientY;
+      lastMoveAt = now;
+
+      if (dt > 0) {
+        // Blend rather than replace, so one jittery sample cannot define the throw.
+        const instant = Math.max(-MAX_VELOCITY, Math.min(MAX_VELOCITY, step / dt));
+        velocity = velocity * 0.6 + instant * 0.4;
+      }
+      emit(step, false);
+    }, { passive: false });
+
+    const release = (event) => {
+      if (!strip.classList.contains('is-active')) return;
+      if (event) event.preventDefault();
+      strip.classList.remove('is-active');
+      // A finger that stopped before lifting means "stop here", not "throw".
+      if (performance.now() - lastMoveAt > 120) velocity = 0;
+      if (Math.abs(velocity) >= MIN_VELOCITY) {
+        haptic(12);
+        glide();
+      }
+    };
+
+    strip.addEventListener('pointerup', release, { passive: false });
+    // Deliberately no pointerleave: the strip is only 68 px wide, so a thumb sliding down it
+    // drifts outside horizontally all the time. Pointer capture guarantees up/cancel arrive
+    // here regardless, and treating a sideways wobble as "finished" would cut scrolls short.
+    strip.addEventListener('pointercancel', release);
+    this.stopScrollMomentum = stopMomentum;
   }
 
   // The click and right-click triggers.
@@ -1081,8 +1177,8 @@ class App {
         const stepX = touch.clientX - lastX;
         // Natural direction: dragging the content up scrolls down.
         this.transport.send('scroll', {
-          dx: Math.round(stepX * 2),
-          dy: Math.round(stepY * 2),
+          dx: Math.round(stepX * 4),
+          dy: Math.round(stepY * 4),
           unit: 'px',
           momentum: false,
         });
@@ -1140,6 +1236,7 @@ class App {
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) {
         if (this.releaseTriggerDrag) this.releaseTriggerDrag();
+        if (this.stopScrollMomentum) this.stopScrollMomentum();
         this.pipeline.setActive(false);
         this.pipeline.reset();
       } else if (this.sensors.attitude) {
