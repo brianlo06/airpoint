@@ -49,6 +49,8 @@ Anything marked **done** has been built *and* exercised, either by `swift test` 
       45-second session at 30–50 frames/s. Pointing works.
 - [x] Gyro-rate pointing path, after device testing showed yaw (magnetometer-derived) was
       markedly worse than pitch
+- [x] Gyro axis convention resolved from physics; confirmed working on a real iPhone
+- [x] Dedicated click/right-click triggers off the pad, so clicking does not break the aim
 - [ ] Tune gain/acceleration against a real hand — current values are still synthetic
 - [ ] Smoothness pass: measure frame-rate variance on device (observed 27–50 Hz, want steady 60)
 

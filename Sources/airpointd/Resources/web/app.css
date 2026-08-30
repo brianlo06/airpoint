@@ -135,8 +135,9 @@ body {
 .pad.is-engaged { background: var(--accent-dim); border-color: var(--accent); }
 .pad.is-dragging { background: #4a2f10; border-color: var(--warn); }
 
-.pad-hint { text-align: center; color: var(--text-dim); pointer-events: none; }
+.pad-hint { text-align: center; color: var(--text-dim); pointer-events: none; padding: 0 20px; }
 .pad-hint strong { display: block; color: var(--text); font-size: 19px; margin-bottom: 4px; }
+.pad-hint-sub { display: block; margin-top: 10px; font-size: 12px; opacity: 0.7; }
 .pad.is-engaged .pad-hint { opacity: 0; }
 
 .pad-live {
@@ -217,6 +218,38 @@ input[type="range"] { flex: 1; height: 36px; accent-color: var(--accent); }
 .dpad-left { grid-area: left; }
 .dpad-down { grid-area: down; }
 .dpad-right { grid-area: right; }
+
+/* The trigger row. Separate from the pad on purpose: the pad is the clutch, so lifting a
+   finger from it to tap would stop the aim. Putting the click on its own surface lets one
+   thumb hold the aim while the other clicks — the way a real air mouse works. */
+.row-trigger { gap: 8px; }
+.btn-trigger {
+  min-height: 78px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  font-size: 20px;
+  font-weight: 650;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.btn-trigger span { font-size: 11px; font-weight: 500; opacity: 0.85; }
+.btn-trigger:active { background: #2f6fd8; }
+.btn-secondary {
+  flex: 0 0 30%;
+  background: var(--surface-hi);
+  border-color: var(--line);
+  color: var(--text);
+}
+.btn-secondary:active { background: var(--line); }
+#click-button.is-dragging {
+  background: var(--warn);
+  border-color: var(--warn);
+  color: #1a1206;
+}
 
 /* The aim lock is a real toggle, not a one-shot trigger: it carries an explicit pressed
    state and reads back the mode it is currently in, so its label is never a lie. */

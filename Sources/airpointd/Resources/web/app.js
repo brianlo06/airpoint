@@ -26,7 +26,7 @@ const PROTOCOL_VERSION = 1;
 // against its own version and says so when they differ: a phone holding a stale page in a
 // backgrounded tab reconnects silently over WebSocket and looks perfectly healthy while
 // running months-old code.
-const CLIENT_VERSION = '0.1.6';
+const CLIENT_VERSION = '0.1.7';
 const SEND_HZ = 60;
 const PING_INTERVAL_MS = 2000;
 // Never let a queued motion delta accumulate: by the time a backed-up frame is delivered
@@ -818,7 +818,6 @@ class App {
         switch (button.dataset.action) {
           case 'recenter':    this._recenter(); break;
           case 'calibrate':   this._startCalibration(); break;
-          case 'right-click': this.transport.send('right_click', { clicks: 1 }); break;
         }
       });
     }
@@ -876,8 +875,85 @@ class App {
     });
 
     this._wireAimLock();
+    this._wireTriggers();
     this._wirePad();
     this._wireLifecycle();
+  }
+
+  // The click and right-click triggers.
+  //
+  // These live outside the pad because the pad is the clutch: lifting a finger from it to
+  // tap is exactly what stops the aim. With a separate surface, one thumb holds the aim
+  // while the other clicks, and multi-touch keeps the two independent — which is how an air
+  // mouse actually behaves.
+  //
+  // Holding the click trigger begins a drag that persists while you keep aiming, so a video
+  // scrubber or a slider can be dragged with the pointer still live.
+  _wireTriggers() {
+    const clickButton = $('click-button');
+    const rightButton = $('right-click-button');
+    const HOLD_MS = 400;
+
+    let holdTimer = null;
+    let dragging = false;
+
+    const beginPress = (event) => {
+      // Fire on press rather than on the synthesised click: it removes the browser's
+      // ~100 ms tap delay, which is very visible on a control you use constantly.
+      event.preventDefault();
+      if (event.pointerId !== undefined && clickButton.setPointerCapture) {
+        try { clickButton.setPointerCapture(event.pointerId); } catch { /* not critical */ }
+      }
+      dragging = false;
+      haptic(10);
+      holdTimer = setTimeout(() => {
+        dragging = true;
+        clickButton.classList.add('is-dragging');
+        this.transport.send('drag_start', { button: 'left' });
+        haptic([20, 40, 20]);
+        toast('Dragging — release to drop');
+      }, HOLD_MS);
+    };
+
+    const endPress = (event) => {
+      event.preventDefault();
+      clearTimeout(holdTimer);
+      if (dragging) {
+        this.transport.send('drag_end', { button: 'left' });
+        clickButton.classList.remove('is-dragging');
+        dragging = false;
+        haptic(15);
+      } else {
+        this.transport.send('left_click', { clicks: 1 });
+        haptic(15);
+      }
+    };
+
+    const cancelPress = () => {
+      // A cancelled press is the OS taking over. Never leave a drag hanging: a stuck
+      // mouse button is the worst state this app can put a machine in.
+      clearTimeout(holdTimer);
+      if (dragging) {
+        this.transport.send('drag_end', { button: 'left' });
+        clickButton.classList.remove('is-dragging');
+        dragging = false;
+      }
+    };
+
+    clickButton.addEventListener('pointerdown', beginPress, { passive: false });
+    clickButton.addEventListener('pointerup', endPress, { passive: false });
+    clickButton.addEventListener('pointercancel', cancelPress);
+    clickButton.addEventListener('contextmenu', (event) => event.preventDefault());
+
+    rightButton.addEventListener('pointerdown', (event) => {
+      event.preventDefault();
+      this.transport.send('right_click', { clicks: 1 });
+      haptic([10, 30, 10]);
+    }, { passive: false });
+    rightButton.addEventListener('contextmenu', (event) => event.preventDefault());
+
+    // Releasing the aim or losing the page must not strand a drag either.
+    this.releaseTriggerDrag = cancelPress;
   }
 
   _wireAimLock() {
@@ -1063,6 +1139,7 @@ class App {
     // first sample after resuming would describe minutes of accumulated rotation.
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) {
+        if (this.releaseTriggerDrag) this.releaseTriggerDrag();
         this.pipeline.setActive(false);
         this.pipeline.reset();
       } else if (this.sensors.attitude) {

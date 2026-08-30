@@ -62,10 +62,21 @@ no network egress, no telemetry.
 | Hold 500 ms | Begin drag; ends on lift |
 | Drag a finger | Scroll (pointing suspends so the two do not fight) |
 
+| Trigger row, below the pad | Does |
+|---|---|
+| Tap **Click** | Left click — **while you keep aiming** |
+| Hold **Click** | Drag, held until you release, with the pointer still live |
+| Tap **Right** | Right click |
+| **Aim: hold the pad** | A real toggle. Locked means the phone steers continuously with nothing held. |
+
 Pointing comes from moving the *phone*, so finger travel on the pad is free to mean
 "scroll" without ever conflicting with aiming. The clutch is the most important control
 here: it makes drift, accidental movement, the phone-rings case and screen-lock all
 non-problems, because motion is only live while your thumb is down.
+
+The triggers live **off** the pad for exactly that reason — lifting a finger from the pad to
+tap is what stops the aim. One thumb holds the aim, the other clicks, and multi-touch keeps
+them independent. Or lock the aim on and use the pad for scrolling.
 
 ---
 
@@ -73,13 +84,19 @@ non-problems, because motion is only live while your thumb is down.
 
 ```bash
 ./tools/dev.sh          # build + unit tests + daemon (dry run) + protocol probe
-swift test              # unit tests only (84 tests, no hardware needed)
+swift test              # unit tests only (105 tests, no hardware needed)
 ```
 
-`tools/probe.mjs` drives a complete session — pairing, every event type, validation,
-rate limiting, version gating — against a running daemon without needing a phone.
-The pairing code is single-use by design, so restart the daemon between probe runs
-(`tools/dev.sh` does this for you).
+Three harnesses, none of which need a phone:
+
+- `tools/probe.mjs` drives a complete session against a running daemon — pairing, every
+  event type, validation, rate limiting, version gating. The pairing code is single-use by
+  design, so restart the daemon between runs (`dev.sh` does this for you).
+- `tools/motion-check.mjs` drives the exact `motion.js` the browser loads with synthetic
+  sensor data, including the gyroscope axis resolver.
+- `tools/sensor-flow-check.mjs` exercises the wiring between sensors, resolver and pipeline.
+  It exists because a dangling reference once broke that seam while every pipeline unit test
+  kept passing.
 
 ### Useful flags
 
@@ -104,7 +121,7 @@ Sources/RemoteKit/   Platform-agnostic core: protocol, validation, motion maths,
 Sources/airpointd/   macOS daemon: TLS listener, HTTP + WebSocket server, pairing, CGEvent.
     Resources/web/   The controller PWA, served over TLS by the daemon itself.
 Tests/               Unit tests for the protocol, motion pipeline and security primitives.
-tools/               probe.mjs (protocol integration test) and dev.sh.
+tools/               probe.mjs, motion-check.mjs, sensor-flow-check.mjs, dev.sh.
 docs/                Product, architecture, protocol, security, motion, plan and testing.
 ```
 
