@@ -141,6 +141,9 @@ No `hello` within 5 s of connect ⇒ close 1008.
 ```
 
 ### `welcome`
+`permissions` is a host-defined map of capability name to boolean, so a client can explain a
+degraded state precisely. AirPoint reports `accessibility`; another host built on the same
+server reports whatever it can fail to have. `ready` is the conventional fallback key.
 ```json
 {"v":1,"t":"welcome","seq":2,"ts":1756500000500,
  "d":{"sessionId":"s_8fc2…","expiresAt":1756503600000,

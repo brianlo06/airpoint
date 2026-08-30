@@ -1,4 +1,5 @@
 import Foundation
+import RemoteKit
 
 /// Runtime configuration. Every value has a safe default, can be overridden by an
 /// environment variable, and can be overridden again by a command-line flag.

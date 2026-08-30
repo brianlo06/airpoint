@@ -5,12 +5,12 @@ import RemoteKit
 ///
 /// Abstracted so the CLI daemon can prompt on the terminal today and the menu-bar app can
 /// show a sheet in Phase 4 without any change to the pairing logic.
-protocol PairingApprover: AnyObject {
+public protocol PairingApprover: AnyObject {
     func requestApproval(deviceName: String, peer: String,
                          completion: @escaping (PairingDecision) -> Void)
 }
 
-enum PairingDecision {
+public enum PairingDecision {
     case approve
     case approveAndTrust
     case deny
@@ -22,7 +22,7 @@ enum PairingDecision {
 /// The security property being enforced is simple to state and worth stating: **no device
 /// ever gets control without a person on this machine having said yes**, unless that person
 /// previously chose to trust that specific device.
-final class PairingService {
+public final class PairingService {
 
     private let queue = DispatchQueue(label: "com.airpoint.pairing")
     private let trustStore: TrustStore
@@ -39,20 +39,20 @@ final class PairingService {
     /// by a second device that also observed the QR.
     private var consumed = false
 
-    init(trustStore: TrustStore, approver: PairingApprover?) {
+    public init(trustStore: TrustStore, approver: PairingApprover?) {
         self.trustStore = trustStore
         self.approver = approver
         self.secret = PairingSecret()
     }
 
-    enum Outcome {
+    public enum Outcome {
         case paired(deviceName: String, trusted: Bool)
         case resumed(device: TrustedDevice)
         case rejected(ProtocolError)
     }
 
     /// The live pairing secret, regenerated when expired or already used.
-    func currentSecret() -> PairingSecret {
+    public func currentSecret() -> PairingSecret {
         queue.sync {
             if consumed || secret.isExpired() {
                 previousSecret = secret
@@ -66,7 +66,7 @@ final class PairingService {
 
     /// Forces a new code, e.g. when the user asks for one in the UI.
     @discardableResult
-    func rotateSecret() -> PairingSecret {
+    public func rotateSecret() -> PairingSecret {
         queue.sync {
             previousSecret = secret
             secret = PairingSecret()
@@ -75,12 +75,12 @@ final class PairingService {
         }
     }
 
-    func remainingCodeSeconds() -> Int {
+    public func remainingCodeSeconds() -> Int {
         queue.sync { consumed ? 0 : secret.remainingSeconds() }
     }
 
     /// Authenticates a `hello` and, when required, asks the user.
-    func authenticate(hello: HelloPayload, nonce: Data, peer: String,
+    public func authenticate(hello: HelloPayload, nonce: Data, peer: String,
                       completion: @escaping (Outcome) -> Void) {
         let now = Date().timeIntervalSince1970
 
@@ -218,12 +218,12 @@ final class PairingService {
 ///
 /// Reads from stdin on a dedicated thread so the listener's queues are never blocked by a
 /// human deciding.
-final class ConsoleApprover: PairingApprover {
+public final class ConsoleApprover: PairingApprover {
 
     private let autoApprove: Bool
     private let queue = DispatchQueue(label: "com.airpoint.approval")
 
-    init(autoApprove: Bool) { self.autoApprove = autoApprove }
+    public init(autoApprove: Bool) { self.autoApprove = autoApprove }
 
     /// Truncates and pads to the fixed box width so a long device name cannot break the
     /// layout — or, worse, use padding to push the warning text off screen.
@@ -232,8 +232,8 @@ final class ConsoleApprover: PairingApprover {
         return truncated.padding(toLength: width, withPad: " ", startingAt: 0)
     }
 
-    func requestApproval(deviceName: String, peer: String,
-                         completion: @escaping (PairingDecision) -> Void) {
+    public func requestApproval(deviceName: String, peer: String,
+                                completion: @escaping (PairingDecision) -> Void) {
         if autoApprove {
             Log.warn("auto-approving '\(deviceName)' from \(peer) (--auto-approve)")
             completion(.approve)

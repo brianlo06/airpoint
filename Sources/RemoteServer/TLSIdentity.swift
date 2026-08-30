@@ -15,15 +15,15 @@ import RemoteKit
 /// SHA-256 fingerprint goes into the QR code; a native client pins it, which is what
 /// upgrades a self-signed certificate from "encrypted but unauthenticated" to
 /// "authenticated against the machine that drew the QR code" (threat T3).
-enum TLSIdentity {
+public enum TLSIdentity {
 
-    struct Loaded {
-        let identity: SecIdentity
-        let certificateFingerprint: String   // base64url SHA-256 of the certificate DER
-        let subjectNames: [String]
+    public struct Loaded {
+        public let identity: SecIdentity
+        public let certificateFingerprint: String   // base64url SHA-256 of the certificate DER
+        public let subjectNames: [String]
     }
 
-    enum IdentityError: Error, CustomStringConvertible {
+    public enum IdentityError: Error, CustomStringConvertible {
         case opensslMissing
         case opensslFailed(String)
         case importFailed(OSStatus)
@@ -32,7 +32,7 @@ enum TLSIdentity {
         case keyUnusable
         case stateDirectoryFailed(String)
 
-        var description: String {
+        public var description: String {
             switch self {
             case .opensslMissing:
                 return "/usr/bin/openssl not found; cannot generate a TLS certificate"
@@ -57,7 +57,7 @@ enum TLSIdentity {
 
     /// Loads the existing identity, regenerating it if it is missing, expired, or no longer
     /// covers the current addresses.
-    static func loadOrCreate(stateDirectory: URL, subjectNames: [String],
+    public static func loadOrCreate(stateDirectory: URL, subjectNames: [String],
                              secrets: SecretStore) throws -> Loaded {
         try prepareStateDirectory(stateDirectory)
 

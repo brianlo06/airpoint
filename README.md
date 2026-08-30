@@ -161,7 +161,9 @@ the bind address is derived from live network interfaces at startup.
 Sources/RemoteKit/   Platform-agnostic core: protocol, validation, motion maths, rate limits.
                      Shared with the native iOS client in Phase 6 — this is why the whole
                      project is Swift rather than Node.
-Sources/airpointd/   macOS daemon: TLS listener, HTTP + WebSocket server, pairing, CGEvent.
+Sources/RemoteServer/  Transport, TLS, pairing and sessions, with no idea what events mean.
+                     Published as a library; hosts implement RemoteSessionHandler.
+Sources/airpointd/   The macOS cursor remote: CGEvent, focus detection, CLI, controller.
     Resources/web/   The controller PWA, served over TLS by the daemon itself.
 Tests/               Unit tests for the protocol, motion pipeline and security primitives.
 tools/               probe.mjs, motion-check.mjs, sensor-flow-check.mjs, dev.sh.
@@ -243,10 +245,19 @@ The parts worth reusing are deliberately separated from the remote-control produ
   CryptoKit. Versioned message envelope, validation with explicit clamp-versus-reject rules,
   a key allowlist, token-bucket rate limiting, pairing crypto, and the motion pipeline. It
   builds for macOS and iOS.
-- **`Sources/airpointd/Server/`** is a self-contained answer to "let a phone talk to this
-  Mac securely over the LAN": self-signed TLS with SAN management, a hand-rolled HTTP/1.1 and
-  RFC 6455 server sharing one port, and `Origin`/`Host` allowlists. Nothing in it is specific
-  to cursors.
+- **`Sources/RemoteServer/`** is a published library and a self-contained answer to "let a
+  phone talk to this Mac securely over the LAN": self-signed TLS with SAN management, a
+  hand-rolled HTTP/1.1 and RFC 6455 server sharing one port, `Origin`/`Host` allowlists,
+  pairing, and session lifetime. It knows nothing about cursors. Implement
+  `RemoteSessionHandler` and the validated events are yours to interpret:
+
+  ```swift
+  .package(url: "https://github.com/brianlo06/airpoint.git", branch: "main")
+  // then: .product(name: "RemoteServer", package: "airpoint")
+  ```
+
+  `ServerConfig.maxConcurrentSessions` is the single knob separating a remote (1 device) from
+  a multiplayer host (one seat per player).
 - **`Sources/airpointd/Input/`** is the only code that touches `CGEvent`, behind an
   `InputExecutor` protocol with a recording implementation for tests. Swap it for a different
   backend without touching anything above.

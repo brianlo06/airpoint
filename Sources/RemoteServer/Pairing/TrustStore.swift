@@ -4,7 +4,7 @@ import CryptoKit
 import RemoteKit
 
 /// A device the user explicitly chose to remember.
-struct TrustedDevice: Codable {
+public struct TrustedDevice: Codable {
     let deviceId: String
     let deviceName: String
     /// Base64 Ed25519 public key. Reconnects are authenticated by signing the server's nonce.
@@ -18,12 +18,12 @@ struct TrustedDevice: Codable {
 /// That is exactly why these records are secrets and not configuration: possession of a
 /// matching private key is what skips the approval dialog. Storage backend is chosen by
 /// `SecretStore` — permission-restricted files for the CLI, Keychain for a signed host.
-final class TrustStore {
+public final class TrustStore {
 
     private let secrets: SecretStore
     private let queue = DispatchQueue(label: "com.airpoint.truststore")
 
-    init(secrets: SecretStore) { self.secrets = secrets }
+    public init(secrets: SecretStore) { self.secrets = secrets }
 
     private static func makeDecoder() -> JSONDecoder {
         let decoder = JSONDecoder()
@@ -37,7 +37,7 @@ final class TrustStore {
         return encoder
     }
 
-    func all() -> [TrustedDevice] {
+    public func all() -> [TrustedDevice] {
         queue.sync {
             guard let accounts = try? secrets.allAccounts() else { return [] }
             let decoder = Self.makeDecoder()
@@ -48,13 +48,13 @@ final class TrustStore {
         }
     }
 
-    func device(withId deviceId: String) -> TrustedDevice? {
+    public func device(withId deviceId: String) -> TrustedDevice? {
         guard let data = (try? secrets.get(account: deviceId)) ?? nil else { return nil }
         return try? Self.makeDecoder().decode(TrustedDevice.self, from: data)
     }
 
     @discardableResult
-    func trust(deviceId: String, deviceName: String, publicKey: String) -> Bool {
+    public func trust(deviceId: String, deviceName: String, publicKey: String) -> Bool {
         let device = TrustedDevice(deviceId: deviceId, deviceName: deviceName,
                                    publicKey: publicKey, trustedAt: Date(), lastSeenAt: Date())
         return save(device)
@@ -81,7 +81,7 @@ final class TrustStore {
     }
 
     @discardableResult
-    func revoke(deviceId: String) -> Bool {
+    public func revoke(deviceId: String) -> Bool {
         queue.sync {
             do { try secrets.delete(account: deviceId); return true }
             catch { Log.warn("could not revoke device: \(error)"); return false }
@@ -89,7 +89,7 @@ final class TrustStore {
     }
 
     @discardableResult
-    func revokeAll() -> Bool {
+    public func revokeAll() -> Bool {
         queue.sync {
             do { try secrets.deleteAll(); return true }
             catch { Log.warn("could not revoke all devices: \(error)"); return false }

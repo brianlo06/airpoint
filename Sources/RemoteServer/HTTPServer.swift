@@ -3,21 +3,21 @@ import Network
 import RemoteKit
 
 /// A minimal HTTP/1.1 request, parsed only as far as this server needs.
-struct HTTPRequest {
-    let method: String
-    let path: String
-    let headers: [String: String]        // lowercased keys
+public struct HTTPRequest {
+    public let method: String
+    public let path: String
+    public let headers: [String: String]        // lowercased keys
 
-    func header(_ name: String) -> String? { headers[name.lowercased()] }
+    public func header(_ name: String) -> String? { headers[name.lowercased()] }
 
-    var isWebSocketUpgrade: Bool {
+    public var isWebSocketUpgrade: Bool {
         header("upgrade")?.lowercased() == "websocket"
             && (header("connection")?.lowercased().contains("upgrade") ?? false)
     }
 
     /// Parses a complete request head. Returns nil if the terminator has not arrived yet.
     /// Throws only for input that can never become valid.
-    static func parse(_ buffer: Data) throws -> (request: HTTPRequest, headLength: Int)? {
+    public static func parse(_ buffer: Data) throws -> (request: HTTPRequest, headLength: Int)? {
         guard let terminator = buffer.range(of: Data("\r\n\r\n".utf8)) else {
             // Bound the head so a client cannot stream headers forever and exhaust memory.
             guard buffer.count < 16 * 1024 else { throw ParseError.headTooLarge }
@@ -45,7 +45,7 @@ struct HTTPRequest {
         return (request, terminator.upperBound - buffer.startIndex)
     }
 
-    enum ParseError: Error {
+    public enum ParseError: Error {
         case headTooLarge, notUTF8, malformedRequestLine
     }
 }
@@ -55,22 +55,16 @@ struct HTTPRequest {
 /// Files are resolved from a fixed allowlist rather than by joining the request path to a
 /// directory. There is no path to traverse if there is no path arithmetic — this removes an
 /// entire bug class rather than trying to filter `..` correctly.
-enum StaticFiles {
+public struct StaticFiles {
 
-    struct Asset {
-        let data: Data
-        let contentType: String
+    public struct Asset {
+        public let data: Data
+        public let contentType: String
     }
 
-    private static let allowlist: [String: String] = [
-        "/":                        "index.html",
-        "/index.html":              "index.html",
-        "/app.css":                 "app.css",
-        "/app.js":                  "app.js",
-        "/motion.js":               "motion.js",
-        "/typing.js":               "typing.js",
-        "/manifest.webmanifest":    "manifest.webmanifest",
-    ]
+    private let content: StaticContent
+
+    public init(content: StaticContent) { self.content = content }
 
     private static let contentTypes: [String: String] = [
         "html": "text/html; charset=utf-8",
@@ -79,18 +73,19 @@ enum StaticFiles {
         "webmanifest": "application/manifest+json; charset=utf-8",
     ]
 
-    static func asset(for path: String) -> Asset? {
+    public func asset(for path: String) -> Asset? {
         // Strip any query string; the controller reads its parameters from the URL fragment,
         // which never reaches the server at all.
         let cleanPath = path.components(separatedBy: "?").first ?? path
-        guard let filename = allowlist[cleanPath] else { return nil }
-        guard let url = Bundle.module.url(forResource: filename, withExtension: nil, subdirectory: "web"),
+        guard let filename = content.allowlist[cleanPath] else { return nil }
+        guard let url = content.bundle.url(forResource: filename, withExtension: nil,
+                                           subdirectory: content.subdirectory),
               let data = try? Data(contentsOf: url) else {
             Log.error("controller asset '\(filename)' is missing from the bundle")
             return nil
         }
         let ext = (filename as NSString).pathExtension
-        return Asset(data: data, contentType: contentTypes[ext] ?? "application/octet-stream")
+        return Asset(data: data, contentType: Self.contentTypes[ext] ?? "application/octet-stream")
     }
 
     /// Response headers applied to every asset.
@@ -99,7 +94,7 @@ enum StaticFiles {
     /// something were injected into the controller, it could not load external code or open a
     /// socket to anywhere but this origin. `Permissions-Policy` is required for the motion
     /// sensors to be readable at all in Chrome.
-    static func securityHeaders() -> [String: String] {
+    public static func securityHeaders() -> [String: String] {
         [
             "Content-Security-Policy":
                 "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
@@ -112,7 +107,7 @@ enum StaticFiles {
         ]
     }
 
-    static func response(status: Int, reason: String, body: Data,
+    public static func response(status: Int, reason: String, body: Data,
                          contentType: String, extraHeaders: [String: String] = [:]) -> Data {
         var head = "HTTP/1.1 \(status) \(reason)\r\n"
         head += "Content-Type: \(contentType)\r\n"
@@ -127,7 +122,7 @@ enum StaticFiles {
         return out
     }
 
-    static func errorResponse(status: Int, reason: String, message: String) -> Data {
+    public static func errorResponse(status: Int, reason: String, message: String) -> Data {
         response(status: status, reason: reason, body: Data(message.utf8),
                  contentType: "text/plain; charset=utf-8")
     }
@@ -138,21 +133,21 @@ enum StaticFiles {
 /// This is the DNS-rebinding and cross-origin defence. A malicious page the user visits on
 /// any device can guess the LAN address and open a WebSocket; these two checks are what stop
 /// it from getting as far as the pairing exchange.
-struct OriginPolicy {
-    let allowedHosts: Set<String>
-    let port: UInt16
+public struct OriginPolicy {
+    public let allowedHosts: Set<String>
+    public let port: UInt16
 
-    init(subjectNames: [String], port: UInt16) {
+    public init(subjectNames: [String], port: UInt16) {
         self.allowedHosts = Set(subjectNames.map { $0.lowercased() })
         self.port = port
     }
 
-    enum Decision {
+    public enum Decision {
         case allow
         case reject(String)
     }
 
-    func evaluate(_ request: HTTPRequest) -> Decision {
+    public func evaluate(_ request: HTTPRequest) -> Decision {
         // Host: rejecting an unexpected Host is the DNS-rebinding defence. An attacker's
         // domain resolving to our LAN IP still carries their name in the Host header.
         guard let host = request.header("host")?.lowercased() else {

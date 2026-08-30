@@ -1,6 +1,7 @@
 import Foundation
 import CoreGraphics
 import RemoteKit
+import RemoteServer
 
 // MARK: - Startup
 
@@ -42,8 +43,12 @@ if !hasPrivateInterface && !isLoopbackOnly {
 let tlsSecrets: SecretStore
 let deviceSecrets: SecretStore
 do {
-    tlsSecrets = try SecretStoreFactory.make(config: config, purpose: "tls")
-    deviceSecrets = try SecretStoreFactory.make(config: config, purpose: "devices")
+    tlsSecrets = try SecretStoreFactory.make(useKeychain: config.useKeychain,
+                                             stateDirectory: config.stateDirectory,
+                                             service: "com.airpoint", purpose: "tls")
+    deviceSecrets = try SecretStoreFactory.make(useKeychain: config.useKeychain,
+                                                stateDirectory: config.stateDirectory,
+                                                service: "com.airpoint", purpose: "devices")
 } catch {
     Log.error("\(error)")
     exit(1)
@@ -63,7 +68,27 @@ do {
 let trustStore = TrustStore(secrets: deviceSecrets)
 let approver = ConsoleApprover(autoApprove: config.autoApprovePairing)
 let pairing = PairingService(trustStore: trustStore, approver: approver)
-let server = Server(config: config, executor: executor, pairing: pairing,
+
+let handler = PointerHandler(executor: executor,
+                             dryRun: config.dryRun,
+                             focusDetection: config.focusDetection)
+
+let serverConfig = ServerConfig(
+    port: config.port,
+    bindHost: config.bindHost,
+    allowPublicBind: config.allowPublicBind,
+    stateDirectory: config.stateDirectory,
+    useKeychain: config.useKeychain,
+    serviceName: "AirPoint on \(ProcessInfo.processInfo.hostName)",
+    serviceType: "_airpoint._tcp",
+    serverVersion: AirPoint.version,
+    expectedClientVersion: AirPoint.controllerVersion,
+    // One device at a time: two phones fighting over one cursor is not a feature.
+    maxConcurrentSessions: 1,
+    staticContent: .webController(bundle: Bundle.module)
+)
+
+let server = Server(config: serverConfig, handler: handler, pairing: pairing,
                     identity: identity, subjectNames: subjectNames)
 
 do {
@@ -83,7 +108,7 @@ var lastPrintedCode = pairing.currentSecret().displayCode
 let codeWatcher = DispatchSource.makeTimerSource(queue: .global())
 codeWatcher.schedule(deadline: .now() + 5, repeating: 5)
 codeWatcher.setEventHandler {
-    guard server.connectedDeviceName == nil else { return }
+    guard server.connectedDeviceNames.isEmpty else { return }
     let secret = pairing.currentSecret()
     guard secret.displayCode != lastPrintedCode else { return }
     lastPrintedCode = secret.displayCode

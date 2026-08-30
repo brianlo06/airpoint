@@ -8,6 +8,10 @@ let package = Package(
         // Shared, platform-agnostic core. Consumed by airpointd today and by the
         // native iOS controller in Phase 6 — this is why the project is Swift.
         .library(name: "RemoteKit", targets: ["RemoteKit"]),
+        // The transport, pairing and session machinery, with no idea what the events mean.
+        // Published as a library so other projects can be built on it — the game in the
+        // sibling repo consumes exactly this.
+        .library(name: "RemoteServer", targets: ["RemoteServer"]),
         .executable(name: "airpointd", targets: ["airpointd"]),
     ],
     targets: [
@@ -16,9 +20,15 @@ let package = Package(
             path: "Sources/RemoteKit",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
+        .target(
+            name: "RemoteServer",
+            dependencies: ["RemoteKit"],
+            path: "Sources/RemoteServer",
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
         .executableTarget(
             name: "airpointd",
-            dependencies: ["RemoteKit"],
+            dependencies: ["RemoteKit", "RemoteServer"],
             path: "Sources/airpointd",
             resources: [.copy("Resources/web")],
             swiftSettings: [.swiftLanguageMode(.v5)]

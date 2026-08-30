@@ -3,7 +3,7 @@ import Security
 
 /// Where the daemon keeps things that must not be world-readable: the TLS bundle password
 /// and trusted-device public keys.
-protocol SecretStore: AnyObject {
+public protocol SecretStore: AnyObject {
     func set(_ data: Data, account: String) throws
     func get(account: String) throws -> Data?
     func delete(account: String) throws
@@ -12,11 +12,11 @@ protocol SecretStore: AnyObject {
     var describeLocation: String { get }
 }
 
-enum SecretStoreError: Error, CustomStringConvertible {
+public enum SecretStoreError: Error, CustomStringConvertible {
     case keychain(OSStatus)
     case io(String)
 
-    var description: String {
+    public var description: String {
         switch self {
         case .keychain(let status): return "keychain error (OSStatus \(status))"
         case .io(let detail): return "secret store I/O error: \(detail)"
@@ -37,12 +37,12 @@ enum SecretStoreError: Error, CustomStringConvertible {
 /// from reading these files. It does not stop malware already running as this user — but
 /// neither does the Keychain once that malware can drive the approval dialog. The signed
 /// menu-bar app in Phase 4 gets a stable code identity and switches to `--keychain`.
-final class FileSecretStore: SecretStore {
+public final class FileSecretStore: SecretStore {
 
     private let directory: URL
     private let queue = DispatchQueue(label: "com.airpoint.secretstore")
 
-    init(directory: URL) throws {
+    public init(directory: URL) throws {
         self.directory = directory
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
@@ -53,7 +53,7 @@ final class FileSecretStore: SecretStore {
         }
     }
 
-    var describeLocation: String { "\(directory.path) (file, 0600)" }
+    public var describeLocation: String { "\(directory.path) (file, 0600)" }
 
     /// Account names become filenames, so they are restricted to a safe alphabet rather
     /// than escaped. A device ID that could contain "../" must never become a path.
@@ -65,7 +65,7 @@ final class FileSecretStore: SecretStore {
         return directory.appendingPathComponent(safe + ".secret")
     }
 
-    func set(_ data: Data, account: String) throws {
+    public func set(_ data: Data, account: String) throws {
         let target = try url(for: account)
         try queue.sync {
             do {
@@ -77,17 +77,17 @@ final class FileSecretStore: SecretStore {
         }
     }
 
-    func get(account: String) throws -> Data? {
+    public func get(account: String) throws -> Data? {
         let target = try url(for: account)
         return queue.sync { try? Data(contentsOf: target) }
     }
 
-    func delete(account: String) throws {
+    public func delete(account: String) throws {
         let target = try url(for: account)
         queue.sync { try? FileManager.default.removeItem(at: target) }
     }
 
-    func deleteAll() throws {
+    public func deleteAll() throws {
         try queue.sync {
             let contents = (try? FileManager.default.contentsOfDirectory(at: directory,
                                                                          includingPropertiesForKeys: nil)) ?? []
@@ -97,7 +97,7 @@ final class FileSecretStore: SecretStore {
         }
     }
 
-    func allAccounts() throws -> [String] {
+    public func allAccounts() throws -> [String] {
         queue.sync {
             let contents = (try? FileManager.default.contentsOfDirectory(at: directory,
                                                                          includingPropertiesForKeys: nil)) ?? []
@@ -109,13 +109,13 @@ final class FileSecretStore: SecretStore {
 
 /// Keychain-backed store, for a code-signed host with a stable identity.
 /// Enabled with `--keychain`; this is what the Phase 4 menu-bar app will use.
-final class KeychainSecretStore: SecretStore {
+public final class KeychainSecretStore: SecretStore {
 
     private let service: String
 
-    init(service: String) { self.service = service }
+    public init(service: String) { self.service = service }
 
-    var describeLocation: String { "keychain service '\(service)'" }
+    public var describeLocation: String { "keychain service '\(service)'" }
 
     private func baseQuery(account: String?) -> [String: Any] {
         var query: [String: Any] = [
@@ -126,7 +126,7 @@ final class KeychainSecretStore: SecretStore {
         return query
     }
 
-    func set(_ data: Data, account: String) throws {
+    public func set(_ data: Data, account: String) throws {
         SecItemDelete(baseQuery(account: account) as CFDictionary)
         var attributes = baseQuery(account: account)
         attributes[kSecValueData as String] = data
@@ -137,7 +137,7 @@ final class KeychainSecretStore: SecretStore {
         guard status == errSecSuccess else { throw SecretStoreError.keychain(status) }
     }
 
-    func get(account: String) throws -> Data? {
+    public func get(account: String) throws -> Data? {
         var query = baseQuery(account: account)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
@@ -148,21 +148,21 @@ final class KeychainSecretStore: SecretStore {
         return result as? Data
     }
 
-    func delete(account: String) throws {
+    public func delete(account: String) throws {
         let status = SecItemDelete(baseQuery(account: account) as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
             throw SecretStoreError.keychain(status)
         }
     }
 
-    func deleteAll() throws {
+    public func deleteAll() throws {
         let status = SecItemDelete(baseQuery(account: nil) as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
             throw SecretStoreError.keychain(status)
         }
     }
 
-    func allAccounts() throws -> [String] {
+    public func allAccounts() throws -> [String] {
         var query = baseQuery(account: nil)
         query[kSecReturnAttributes as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitAll
@@ -176,12 +176,15 @@ final class KeychainSecretStore: SecretStore {
     }
 }
 
-enum SecretStoreFactory {
-    static func make(config: Config, purpose: String) throws -> SecretStore {
-        if config.useKeychain {
-            return KeychainSecretStore(service: "com.airpoint.\(purpose)")
+public enum SecretStoreFactory {
+    /// `purpose` namespaces the store, so a host can keep TLS material and device trust
+    /// apart, and two applications sharing this library never collide.
+    public static func make(useKeychain: Bool, stateDirectory: URL,
+                            service: String, purpose: String) throws -> SecretStore {
+        if useKeychain {
+            return KeychainSecretStore(service: "\(service).\(purpose)")
         }
-        return try FileSecretStore(directory: config.stateDirectory
+        return try FileSecretStore(directory: stateDirectory
             .appendingPathComponent("secrets", isDirectory: true)
             .appendingPathComponent(purpose, isDirectory: true))
     }

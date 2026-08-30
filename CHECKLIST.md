@@ -57,6 +57,16 @@ Anything marked **done** has been built *and* exercised, either by `swift test` 
 
 ---
 
+## Library extraction — **done**
+
+- [x] `RemoteServer` split out as a published library product
+- [x] `RemoteSessionHandler` seam: the session layer no longer knows what an event means
+- [x] `ServerConfig` with `maxConcurrentSessions`, replacing the hardcoded single-pointer rule
+- [x] `StaticContent` so a host serves its own controller assets
+- [x] `permissions` in `welcome` is host-supplied rather than hardcoded to `accessibility`
+- [x] AirPoint rebuilt on the seam as `PointerHandler`; all 111 tests and 19 protocol
+      assertions still pass, and `Origin`/`Host` policy still verified live
+
 ## Phase 4 — Menu-bar app and pairing UX — not started
 
 - [ ] SwiftUI `MenuBarExtra` agent (`LSUIElement`), replacing the terminal

@@ -9,9 +9,9 @@ import CoreGraphics
 ///
 /// Each output character is two vertical pixels (upper half block), so the code stays
 /// square-ish in a terminal cell grid and small enough to scan from a phone.
-enum QRCode {
+public enum QRCode {
 
-    static func terminalString(for text: String, quietZone: Int = 2) -> String? {
+    public static func terminalString(for text: String, quietZone: Int = 2) -> String? {
         guard let matrix = matrix(for: text) else { return nil }
 
         let size = matrix.count
@@ -55,7 +55,7 @@ enum QRCode {
     }
 
     /// The module matrix, `true` where a module is dark.
-    static func matrix(for text: String) -> [[Bool]]? {
+    public static func matrix(for text: String) -> [[Bool]]? {
         guard let filter = CIFilter(name: "CIQRCodeGenerator") else { return nil }
         filter.setValue(Data(text.utf8), forKey: "inputMessage")
         // M: 15% error correction. Enough for a screen, without inflating the module count

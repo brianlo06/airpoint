@@ -6,13 +6,14 @@ import RemoteKit
 ///
 /// Binds only to private addresses. Advertises `_airpoint._tcp` over Bonjour so a native
 /// client can find the Mac without the user reading an IP address aloud.
-final class Server {
+public final class Server {
 
-    private let config: Config
-    private let executor: InputExecutor
+    private let config: ServerConfig
+    private let handler: RemoteSessionHandler
     private let pairing: PairingService
     private let identity: TLSIdentity.Loaded
     private let originPolicy: OriginPolicy
+    let staticFiles: StaticFiles
 
     private var listener: NWListener?
     private let queue = DispatchQueue(label: "com.airpoint.server")
@@ -20,27 +21,28 @@ final class Server {
 
     /// Every live connection, authenticated or not.
     private var connections: [ObjectIdentifier: ClientConnection] = [:]
-    /// The one connection allowed to produce input.
-    private weak var pointerOwner: ClientConnection?
+    /// Authenticated connections, oldest first. Bounded by `maxConcurrentSessions`.
+    private var activeSessions: [ObjectIdentifier] = []
 
-    let subjectNames: [String]
+    public let subjectNames: [String]
 
-    init(config: Config, executor: InputExecutor, pairing: PairingService,
-         identity: TLSIdentity.Loaded, subjectNames: [String]) {
+    public init(config: ServerConfig, handler: RemoteSessionHandler, pairing: PairingService,
+                identity: TLSIdentity.Loaded, subjectNames: [String]) {
         self.config = config
-        self.executor = executor
+        self.handler = handler
         self.pairing = pairing
         self.identity = identity
         self.subjectNames = subjectNames
         self.originPolicy = OriginPolicy(subjectNames: subjectNames, port: config.port)
+        self.staticFiles = StaticFiles(content: config.staticContent)
     }
 
-    enum ServerError: Error, CustomStringConvertible {
+    public enum ServerError: Error, CustomStringConvertible {
         case invalidPort(UInt16)
         case publicBindRefused(String)
         case listenFailed(String)
 
-        var description: String {
+        public var description: String {
             switch self {
             case .invalidPort(let port): return "port \(port) is not usable"
             case .publicBindRefused(let host):
@@ -54,7 +56,7 @@ final class Server {
         }
     }
 
-    func start() throws {
+    public func start() throws {
         if let host = config.bindHost, !config.allowPublicBind {
             let isIPv4 = host.contains(".")
             guard host == "localhost" || NetworkInterfaces.isPrivateAddress(host, isIPv4: isIPv4) else {
@@ -84,8 +86,7 @@ final class Server {
             throw ServerError.listenFailed(String(describing: error))
         }
 
-        listener.service = NWListener.Service(name: "AirPoint on \(ProcessInfo.processInfo.hostName)",
-                                              type: "_airpoint._tcp")
+        listener.service = NWListener.Service(name: config.serviceName, type: config.serviceType)
 
         listener.stateUpdateHandler = { [weak self] state in
             switch state {
@@ -136,7 +137,7 @@ final class Server {
         pathMonitor.start(queue: queue)
     }
 
-    func stop() {
+    public func stop() {
         queue.sync {
             listener?.cancel()
             listener = nil
@@ -144,37 +145,35 @@ final class Server {
                 connection.close(code: .goingAway, reason: "server stopping")
             }
             connections.removeAll()
+            activeSessions.removeAll()
         }
         pathMonitor.cancel()
-        executor.releaseAll()
     }
 
     /// Immediate revocation of all control. Wired to the panic path.
-    func disconnectAll(reason: String) {
+    public func disconnectAll(reason: String) {
         queue.sync {
             for connection in connections.values {
                 connection.close(code: .policyViolation, reason: reason)
             }
             connections.removeAll()
-            pointerOwner = nil
+            activeSessions.removeAll()
         }
-        executor.releaseAll()
         Log.warn("all sessions disconnected: \(reason)")
     }
 
-    var connectedDeviceName: String? {
-        queue.sync { pointerOwner?.deviceName }
+    public var connectedDeviceNames: [String] {
+        queue.sync { activeSessions.compactMap { connections[$0]?.deviceName } }
     }
 
     // MARK: - Connection lifecycle
 
     private func accept(_ nwConnection: NWConnection) {
         let client = ClientConnection(connection: nwConnection,
-                                      executor: executor,
+                                      handler: handler,
                                       pairing: pairing,
                                       originPolicy: originPolicy,
-                                      dryRun: config.dryRun,
-                                      focusDetection: config.focusDetection,
+                                      config: config,
                                       server: self)
         queue.async {
             self.connections[ObjectIdentifier(client)] = client
@@ -184,32 +183,37 @@ final class Server {
 
     func remove(_ client: ClientConnection) {
         queue.async {
-            self.connections.removeValue(forKey: ObjectIdentifier(client))
-            if self.pointerOwner === client {
-                self.pointerOwner = nil
-                // Whoever held the pointer may have left a button or modifier down.
-                self.executor.releaseAll()
-                Log.info("pointer session ended")
+            let key = ObjectIdentifier(client)
+            self.connections.removeValue(forKey: key)
+            if let index = self.activeSessions.firstIndex(of: key) {
+                self.activeSessions.remove(at: index)
+                Log.info("session ended (\(self.activeSessions.count) still active)")
             }
         }
     }
 
-    /// Grants pointer control, displacing any previous holder.
-    /// Exactly one device can produce input at a time; a second approved device takes over
-    /// rather than fighting for the cursor.
-    func grantPointer(to client: ClientConnection) {
+    /// Admits a newly authenticated session, evicting the oldest if the seat limit is full.
+    ///
+    /// With `maxConcurrentSessions == 1` this reproduces AirPoint's rule exactly: a second
+    /// approved device takes over rather than fighting for the cursor. With a larger limit
+    /// every device keeps its own session, which is what a multiplayer host wants.
+    func admit(_ client: ClientConnection) {
         queue.async {
-            if let previous = self.pointerOwner, previous !== client {
-                Log.info("'\(client.deviceName ?? "device")' took over from '\(previous.deviceName ?? "device")'")
-                previous.sendError(ProtocolError(.sessionReplaced, "another device took control"))
-                previous.close(code: .policyViolation, reason: "replaced")
-                self.executor.releaseAll()
+            let key = ObjectIdentifier(client)
+            guard !self.activeSessions.contains(key) else { return }
+
+            while self.activeSessions.count >= max(self.config.maxConcurrentSessions, 1) {
+                let oldest = self.activeSessions.removeFirst()
+                guard let evicted = self.connections[oldest] else { continue }
+                Log.info("'\(client.deviceName ?? "device")' took the seat held by '\(evicted.deviceName ?? "device")'")
+                evicted.sendError(ProtocolError(.sessionReplaced, "another device took control"))
+                evicted.close(code: .policyViolation, reason: "replaced")
             }
-            self.pointerOwner = client
+            self.activeSessions.append(key)
         }
     }
 
-    func holdsPointer(_ client: ClientConnection) -> Bool {
-        queue.sync { pointerOwner === client }
+    func isAdmitted(_ client: ClientConnection) -> Bool {
+        queue.sync { activeSessions.contains(ObjectIdentifier(client)) }
     }
 }

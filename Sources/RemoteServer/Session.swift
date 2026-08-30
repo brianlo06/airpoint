@@ -8,7 +8,7 @@ import RemoteKit
 /// only `hello`/`ping`/`disconnect`, and has a hard deadline to authenticate. Every inbound
 /// frame is size-checked, decoded, validated and rate-limited before it can reach the
 /// executor — in that order, so an expensive step never runs on unvalidated input.
-final class ClientConnection {
+final class ClientConnection: RemoteSession {
 
     private enum Phase {
         case awaitingHTTP
@@ -21,12 +21,10 @@ final class ClientConnection {
     }
 
     private let connection: NWConnection
-    private let executor: InputExecutor
+    private let handler: RemoteSessionHandler
     private let pairing: PairingService
     private let originPolicy: OriginPolicy
-    private let dryRun: Bool
-    private let focusDetection: Bool
-    private var focusMonitor: FocusMonitor?
+    private let config: ServerConfig
     private weak var server: Server?
 
     private let queue = DispatchQueue(label: "com.airpoint.connection")
@@ -58,17 +56,17 @@ final class ClientConnection {
     private var sessionExpiresAt = Date().addingTimeInterval(Limits.sessionLifetime)
     private var timer: DispatchSourceTimer?
 
+    let id = UUID()
     private(set) var deviceName: String?
     let peer: String
 
-    init(connection: NWConnection, executor: InputExecutor, pairing: PairingService,
-         originPolicy: OriginPolicy, dryRun: Bool, focusDetection: Bool, server: Server) {
-        self.focusDetection = focusDetection
+    init(connection: NWConnection, handler: RemoteSessionHandler, pairing: PairingService,
+         originPolicy: OriginPolicy, config: ServerConfig, server: Server) {
         self.connection = connection
-        self.executor = executor
+        self.handler = handler
         self.pairing = pairing
         self.originPolicy = originPolicy
-        self.dryRun = dryRun
+        self.config = config
         self.server = server
         self.peer = Self.describe(connection.endpoint)
         self.limiter = SessionRateLimiter(now: Date().timeIntervalSince1970)
@@ -211,7 +209,7 @@ final class ClientConnection {
             close(code: .normal, reason: "method")
             return
         }
-        guard let asset = StaticFiles.asset(for: request.path) else {
+        guard let asset = server?.staticFiles.asset(for: request.path) else {
             sendRaw(StaticFiles.errorResponse(status: 404, reason: "Not Found", message: "Not found"))
             close(code: .normal, reason: "404")
             return
@@ -245,7 +243,7 @@ final class ClientConnection {
         // The challenge nonce goes out immediately; the client's proof must be computed
         // over it, which is what makes a captured `hello` useless on a later connection.
         send(.challenge, ChallengePayload(nonce: nonce.base64URLEncodedString(),
-                                          serverVersion: AirPoint.version))
+                                          serverVersion: config.serverVersion))
         // Any bytes that arrived in the same TCP segment as the handshake are already frames.
         if !buffer.isEmpty { handleWebSocketPhase() }
     }
@@ -403,6 +401,8 @@ final class ClientConnection {
 
     private func dispatch(_ message: ClientMessage) {
         switch message.event {
+        // Session-level concerns stay here; they are about the connection, not about what
+        // the events mean, and a host application should not have to reimplement them.
         case .hello(let hello):
             handleHello(hello)
 
@@ -413,77 +413,41 @@ final class ClientConnection {
             Log.info("'\(deviceName ?? "device")' disconnected (\(payload.reason))")
             close(code: .normal, reason: payload.reason)
 
-        case .pointerMove(let move):
+        case .pointerMove:
             // Stale deltas are worse than no deltas: applying an out-of-order motion frame
             // makes the cursor visibly stutter backwards.
             guard message.seq == 0 || message.seq >= lastAppliedPointerSeq else { return }
             lastAppliedPointerSeq = message.seq
-            guard requirePermission() else { return }
-            let magnitude = (move.dx * move.dx + move.dy * move.dy).squareRoot()
+            deliver(message.event)
+
+        default:
+            deliver(message.event)
+        }
+    }
+
+    /// Passes a validated event to the host application, once it is entitled to act.
+    private func deliver(_ event: ClientEvent) {
+        guard let server, server.isAdmitted(self) else { return }
+        guard handler.isReady(for: self) else {
+            // Refused visibly rather than silently dropped: a remote that does nothing is
+            // indistinguishable from a broken one.
+            sendError(ProtocolError(.permissionDenied, "the host cannot accept input right now"))
+            return
+        }
+        if case .pointerMove(let move) = event {
             pointerFrameCount += 1
+            let magnitude = (move.dx * move.dx + move.dy * move.dy).squareRoot()
             pointerPixelsMoved += magnitude
             pointerMaxDelta = max(pointerMaxDelta, magnitude)
             framesSinceReport += 1
             pixelsSinceReport += magnitude
             announcedMotion = true
             reportMotionRate()
-            executor.moveCursor(dx: move.dx, dy: move.dy)
-
-        case .leftClick(let click):
-            guard requirePermission() else { return }
-            executor.click(button: .left, count: click.clicks)
-
-        case .rightClick(let click):
-            guard requirePermission() else { return }
-            executor.click(button: .right, count: click.clicks)
-
-        case .dragStart(let drag):
-            guard requirePermission() else { return }
-            executor.beginDrag(button: drag.button)
-
-        case .dragEnd(let drag):
-            guard requirePermission() else { return }
-            executor.endDrag(button: drag.button)
-
-        case .scroll(let scroll):
-            guard requirePermission() else { return }
-            executor.scroll(dx: scroll.dx, dy: scroll.dy, unit: scroll.unit, isMomentum: scroll.momentum)
-
-        case .keyPress(let key):
-            guard requirePermission() else { return }
-            executor.pressKey(key.key, modifiers: key.modifiers, repeatCount: key.repeatCount)
-
-        case .textInput(let text):
-            guard requirePermission() else { return }
-            executor.typeText(text.text)
-
-        case .mediaCommand(let media):
-            guard requirePermission() else { return }
-            executor.mediaCommand(media.command, amount: media.amount)
-
-        case .recenter(let recenter):
-            // Recentring is a client-side operation; the server's only job is the optional
-            // courtesy of parking the cursor where the user is about to point.
-            if recenter.toCenter, requirePermission() {
-                executor.centerCursorOnActiveDisplay()
-            }
-
-        case .calibration(let calibration):
+        }
+        if case .calibration(let calibration) = event {
             logCalibration(calibration)
         }
-    }
-
-    /// Input events are refused, visibly, when the OS will not accept them. Silently doing
-    /// nothing would leave the user shaking their phone at an unresponsive cursor.
-    private func requirePermission() -> Bool {
-        guard let server, server.holdsPointer(self) else { return false }
-        if dryRun { return true }
-        guard executor.hasPermission else {
-            sendError(ProtocolError(.permissionDenied,
-                                    "AirPoint needs Accessibility permission on the Mac"))
-            return false
-        }
-        return true
+        handler.handle(event, from: self)
     }
 
     private func handleHello(_ hello: HelloPayload) {
@@ -496,9 +460,9 @@ final class ClientConnection {
 
         // A reconnecting WebSocket does not reload the page, so a tab left open across an
         // update keeps running the old controller indefinitely while looking healthy.
-        if hello.clientVersion != AirPoint.controllerVersion {
+        if hello.clientVersion != config.expectedClientVersion {
             Log.warn("""
-            this phone is running controller \(hello.clientVersion) but this server ships             \(AirPoint.controllerVersion). The page did not reload. Close the tab on the phone             entirely and open the URL again — reconnecting over WebSocket does not fetch new code.
+            this phone is running controller \(hello.clientVersion) but this server ships             \(config.expectedClientVersion). The page did not reload. Close the tab on the phone             entirely and open the URL again — reconnecting over WebSocket does not fetch new code.
             """)
         }
 
@@ -530,45 +494,17 @@ final class ClientConnection {
         phase = .authenticated
         authenticatedAt = Date()
         sessionExpiresAt = Date().addingTimeInterval(Limits.sessionLifetime)
-        server?.grantPointer(to: self)
-
-        var features = ["pointer", "scroll", "keyboard", "media", "drag"]
-        if dryRun { features.append("dry-run") }
+        server?.admit(self)
 
         send(.welcome, WelcomePayload(
-            sessionId: UUID().uuidString,
+            sessionId: id.uuidString,
             expiresAt: Int64(sessionExpiresAt.timeIntervalSince1970 * 1000),
-            displays: executor.displays(),
-            features: features,
-            permissions: ["accessibility": executor.hasPermission]
+            displays: handler.displays(for: self),
+            features: handler.features(for: self),
+            permissions: handler.permissions(for: self)
         ))
-
-        if !executor.hasPermission && !dryRun {
-            Log.warn("connected, but Accessibility permission is missing — input will not work")
-        }
-        startFocusMonitoring()
+        handler.sessionDidBegin(self)
         Log.info("session established with '\(deviceName ?? "device")'")
-    }
-
-    private func startFocusMonitoring() {
-        guard focusDetection else {
-            Log.debug("focus detection disabled by configuration")
-            return
-        }
-        guard executor.hasPermission, !dryRun else {
-            Log.debug("focus detection unavailable (accessibility=\(executor.hasPermission), dryRun=\(dryRun))")
-            return
-        }
-        Log.debug("focus detection started")
-        let monitor = FocusMonitor { [weak self] isTextInput in
-            guard let self else { return }
-            self.queue.async {
-                guard self.phase == .authenticated else { return }
-                self.send(.focus, FocusPayload(textInput: isTextInput))
-            }
-        }
-        monitor.start()
-        focusMonitor = monitor
     }
 
     // MARK: - Sending
@@ -590,6 +526,24 @@ final class ClientConnection {
     func sendError(_ error: ProtocolError) {
         guard phase == .unauthenticated || phase == .authenticated else { return }
         send(.error, ErrorPayload(error))
+    }
+
+    // MARK: - RemoteSession
+
+    func send(error: ProtocolError) { queue.async { self.sendError(error) } }
+
+    func send(status: StatusPayload) {
+        queue.async {
+            guard self.phase == .authenticated else { return }
+            self.send(.status, status)
+        }
+    }
+
+    func send(focus: FocusPayload) {
+        queue.async {
+            guard self.phase == .authenticated else { return }
+            self.send(.focus, focus)
+        }
     }
 
     private func sendRaw(_ data: Data) {
@@ -637,22 +591,13 @@ final class ClientConnection {
         phase = .closed
         timer?.cancel()
         timer = nil
-        focusMonitor?.stop()
-        focusMonitor = nil
         assembler.reset()
         buffer.removeAll()
         if pointerFrameCount > 0 {
             Log.info("session summary: \(pointerFrameCount) pointer frames, \(Int(pointerPixelsMoved)) px of travel")
         }
         connection.cancel()
+        handler.sessionDidEnd(self)
         server?.remove(self)
     }
-}
-
-enum AirPoint {
-    static let version = "0.1.0"
-    /// Version of the controller bundled in Resources/web. Kept separate from the server
-    /// version because they are updated for different reasons and compared against
-    /// different things.
-    static let controllerVersion = "0.2.0"
 }

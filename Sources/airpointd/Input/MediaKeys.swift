@@ -1,4 +1,5 @@
 import Foundation
+import RemoteKit
 import AppKit
 
 /// Posts hardware media-key events.
