@@ -1,5 +1,7 @@
 # AirPoint
 
+[![CI](https://github.com/brianlo06/airpoint/actions/workflows/ci.yml/badge.svg)](https://github.com/brianlo06/airpoint/actions/workflows/ci.yml)
+
 Turn a phone into a motion-controlled remote for a Mac. Point the phone at the screen and the
 cursor follows; tap to click, swipe to scroll, switch modes for media, keyboard and browser
 controls. Built for driving a laptop that is plugged into a TV, from the couch.
@@ -28,7 +30,7 @@ but not built — see `CHECKLIST.md` for the exact line between the two.
 ## Quick start
 
 ```bash
-git clone https://github.com/<you>/airpoint.git && cd airpoint
+git clone https://github.com/brianlo06/airpoint.git && cd airpoint
 swift build
 
 # Check the Accessibility permission end to end (draws a square with the real cursor)
