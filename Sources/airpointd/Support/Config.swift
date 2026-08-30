@@ -24,6 +24,9 @@ public struct Config {
     /// Store secrets in the macOS Keychain instead of permission-restricted files.
     /// Only appropriate for a code-signed host — see SecretStore.swift for why.
     public var useKeychain = false
+    /// Tell the phone when a text field takes focus, so it can raise its keyboard.
+    /// Reads only the focused element's accessibility role — see FocusMonitor.swift.
+    public var focusDetection = true
 
     public static func defaultStateDirectory() -> URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
@@ -95,6 +98,8 @@ public struct Config {
                 config.selfTest = true
             case "--keychain":
                 config.useKeychain = true
+            case "--no-focus-detection":
+                config.focusDetection = false
             case "--auto-approve":
                 config.autoApprovePairing = true
             case "--i-know-what-im-doing":
@@ -145,6 +150,7 @@ public struct Config {
       --log-level <level>   debug | info | warn | error (env AIRPOINT_LOG_LEVEL)
       --dry-run             Accept connections but never post real input events
       --keychain            Store secrets in the Keychain (code-signed hosts only)
+      --no-focus-detection  Do not tell the phone when a text field is focused
       --auto-approve        Skip the approval prompt; requires --bind 127.0.0.1
       --i-know-what-im-doing  Permit binding a non-private address
       --selftest            Move the cursor in a square and exit (checks permissions)

@@ -340,6 +340,35 @@ kbd {
 }
 .tab.is-active { color: var(--text); border-top-color: var(--accent); }
 
+/* The keyboard prompt.
+ *
+ * It is a button rather than an automatic focus because iOS will not raise the keyboard
+ * without a user gesture — a programmatic focus() from a network message silently does
+ * nothing. One tap is the smallest honest interaction that works. */
+.type-prompt {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: calc(76px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 14px 16px;
+  background: var(--accent);
+  border: 0;
+  border-radius: var(--radius);
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+  z-index: 25;
+}
+.type-prompt strong { font-size: 15px; font-weight: 650; }
+.type-prompt span { font-size: 12px; opacity: 0.85; }
+.type-prompt:active { background: #2f6fd8; }
+
+.live-note { margin: 0 0 2px; padding: 0 4px; font-size: 12px; color: var(--text-dim); }
+
 /* --- Toast -------------------------------------------------------------- */
 
 .toast {

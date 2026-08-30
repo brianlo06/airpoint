@@ -23,6 +23,9 @@ node tools/motion-check.mjs | tail -1
 echo "==> controller sensor flow"
 node tools/sensor-flow-check.mjs | tail -1
 
+echo "==> typing diff"
+node tools/typing-check.mjs | tail -1
+
 mkdir -p "$STATE_DIR"
 echo "==> starting airpointd (dry-run, loopback, state in $STATE_DIR)"
 ./.build/debug/airpointd \

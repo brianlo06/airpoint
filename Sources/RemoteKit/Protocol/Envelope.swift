@@ -190,7 +190,7 @@ public struct ClientMessage: Decodable, Sendable {
 // MARK: - Server → client
 
 public enum ServerEventType: String, Sendable {
-    case challenge, welcome, pairPending = "pair_pending", status, pong, error
+    case challenge, welcome, pairPending = "pair_pending", status, pong, error, focus
 }
 
 /// Server frames are encoded through one generic envelope so the version, sequence and
@@ -260,6 +260,17 @@ public struct StatusPayload: Encodable, Sendable {
         self.pointerEnabled = pointerEnabled; self.accessibility = accessibility
         self.activeDisplay = activeDisplay; self.dragging = dragging
     }
+}
+
+/// Tells the client whether the host's focused control accepts typed text, so the phone
+/// can offer its keyboard at the moment it becomes useful.
+///
+/// Deliberately a single boolean. The host knows the focused element's role but sends none
+/// of it: nothing about what is on screen, what application is frontmost, or what any field
+/// contains ever crosses the wire.
+public struct FocusPayload: Encodable, Sendable {
+    public let textInput: Bool
+    public init(textInput: Bool) { self.textInput = textInput }
 }
 
 public struct PongPayload: Encodable, Sendable {

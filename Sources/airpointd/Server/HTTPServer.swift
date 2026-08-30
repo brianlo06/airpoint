@@ -68,6 +68,7 @@ enum StaticFiles {
         "/app.css":                 "app.css",
         "/app.js":                  "app.js",
         "/motion.js":               "motion.js",
+        "/typing.js":               "typing.js",
         "/manifest.webmanifest":    "manifest.webmanifest",
     ]
 

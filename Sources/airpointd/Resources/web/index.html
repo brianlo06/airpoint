@@ -127,11 +127,12 @@
 
   <!-- Keyboard ----------------------------------------------------------- -->
   <div class="pane" id="pane-keyboard">
+    <p class="live-note" id="live-note">Characters are sent as you type.</p>
     <div class="compose">
       <input id="text-input" class="text-input" type="text"
              autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
-             placeholder="Type here, then Send">
-      <button id="text-send" class="btn btn-primary">Send</button>
+             placeholder="Type — it appears on the Mac">
+      <button id="text-clear" class="btn">Clear</button>
     </div>
     <div class="grid grid-4">
       <button class="btn" data-key="Escape">Esc</button>
@@ -182,6 +183,11 @@
     <button class="tab" data-pane="keyboard" role="tab">Keys</button>
     <button class="tab" data-pane="browser" role="tab">Browser</button>
   </nav>
+
+  <button class="type-prompt is-hidden" id="type-prompt">
+    <strong>Text field focused on your Mac</strong>
+    <span>Tap to open the keyboard</span>
+  </button>
 
   <div class="toast is-hidden" id="toast" role="status"></div>
 </section>

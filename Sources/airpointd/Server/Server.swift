@@ -174,6 +174,7 @@ final class Server {
                                       pairing: pairing,
                                       originPolicy: originPolicy,
                                       dryRun: config.dryRun,
+                                      focusDetection: config.focusDetection,
                                       server: self)
         queue.async {
             self.connections[ObjectIdentifier(client)] = client

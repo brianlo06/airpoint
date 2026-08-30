@@ -50,6 +50,13 @@ The daemon prints a URL, a six-digit pairing code and a scannable QR code. On yo
 AirPoint requests **nothing else**. No screen recording, no microphone, no clipboard access,
 no network egress, no telemetry.
 
+**One thing worth knowing about the Accessibility permission.** Besides posting input,
+AirPoint reads the *accessibility role* of whatever control currently has focus — the string
+`"AXTextField"` and friends — so the phone can offer its keyboard when you click into a
+search box. It never reads that control's value, title or contents, never looks at the
+window or the frontmost application, and the only thing that crosses the wire is a single
+boolean. Nothing is stored or logged. Turn it off with `--no-focus-detection`.
+
 ---
 
 ## Gestures
@@ -74,6 +81,17 @@ no network egress, no telemetry.
 | Hold **Click** | Drag, held until you release, with the pointer still live |
 | Tap **Right** | Right click |
 | **Aim: hold the pad** | A real toggle. Locked means the phone steers continuously with nothing held. |
+
+### Typing
+
+Click into a text field on the Mac and the phone offers **"Text field focused on your Mac —
+tap to open the keyboard"**. One tap raises it, because iOS will not open a keyboard without
+a user gesture; a programmatic `focus()` from a network message silently does nothing.
+
+Typing is then live: characters reach the Mac as you type, not on a Send button. The phone's
+field is a local mirror, which is what lets autocorrect and predictive text work — those
+replace whole words at once, so the difference is turned into the right number of backspaces
+plus the new text. **Clear** wipes only the phone's mirror, never the Mac's field.
 
 Pointing comes from moving the *phone*, so finger travel on the pad is free to mean
 "scroll" without ever conflicting with aiming. The clutch is the most important control
@@ -103,6 +121,8 @@ Three harnesses, none of which need a phone:
 - `tools/sensor-flow-check.mjs` exercises the wiring between sensors, resolver and pipeline.
   It exists because a dangling reference once broke that seam while every pipeline unit test
   kept passing.
+- `tools/typing-check.mjs` covers the live-typing diff, including the autocorrect and emoji
+  cases that a naive character-append would get wrong.
 
 ### Useful flags
 

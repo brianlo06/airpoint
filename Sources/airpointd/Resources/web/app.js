@@ -20,13 +20,14 @@ import {
   GyroAxisResolver,
   applyAxisCandidate,
 } from '/motion.js';
+import { computeTypingDelta, backspaceBatches } from '/typing.js';
 
 const PROTOCOL_VERSION = 1;
 // Bumped whenever the controller changes in a way that matters. The server compares this
 // against its own version and says so when they differ: a phone holding a stale page in a
 // backgrounded tab reconnects silently over WebSocket and looks perfectly healthy while
 // running months-old code.
-const CLIENT_VERSION = '0.1.8';
+const CLIENT_VERSION = '0.1.9';
 const SEND_HZ = 60;
 const PING_INTERVAL_MS = 2000;
 // Never let a queued motion delta accumulate: by the time a backed-up frame is delivered
@@ -427,6 +428,10 @@ class App {
         this._onWelcome(message.d);
         break;
 
+      case 'focus':
+        this._onFocusHint(message.d.textInput === true);
+        break;
+
       case 'status':
         this._setLink(message.d.accessibility ? 'ok' : 'degraded',
           message.d.accessibility ? 'Connected' : 'Needs permission');
@@ -498,6 +503,58 @@ class App {
     } else {
       toast(payload.message);
     }
+  }
+
+  // The Mac reports that a text field took focus.
+  //
+  // iOS will not raise the keyboard without a user gesture: calling focus() from a network
+  // message does nothing at all. So this offers a single large tap target instead of
+  // pretending to be automatic. If the keyboard is already up, it stays out of the way.
+  _onFocusHint(isTextInput) {
+    const prompt = $('type-prompt');
+    const alreadyTyping = document.activeElement === $('text-input');
+
+    if (!isTextInput || alreadyTyping) {
+      prompt.classList.add('is-hidden');
+      return;
+    }
+    if (prompt.classList.contains('is-hidden')) haptic(12);
+    prompt.classList.remove('is-hidden');
+  }
+
+  _openKeyboard() {
+    $('type-prompt').classList.add('is-hidden');
+    for (const tab of document.querySelectorAll('.tab')) {
+      tab.classList.toggle('is-active', tab.dataset.pane === 'keyboard');
+    }
+    for (const pane of document.querySelectorAll('.pane')) pane.classList.remove('is-visible');
+    $('pane-keyboard').classList.add('is-visible');
+
+    const input = $('text-input');
+    input.value = '';
+    this.lastTypedValue = '';
+    // Must run inside the tap's own call stack; deferring it loses the user activation.
+    input.focus();
+  }
+
+  // Sends what you type, character by character, instead of waiting for a Send button.
+  //
+  // The field is a local mirror rather than the source of truth, which is what lets iOS
+  // autocorrect and predictive text work: those replace whole words at once, so the diff is
+  // taken against the previous contents and turned into the right number of backspaces plus
+  // the new text. Typing straight into a cleared field would break both.
+  _sendTypedDiff() {
+    const input = $('text-input');
+    const next = input.value;
+    const previous = this.lastTypedValue;
+    if (next === previous) return;
+
+    const delta = computeTypingDelta(previous, next);
+    for (const batch of backspaceBatches(delta.backspaces)) {
+      this.transport.send('key_press', { key: 'Backspace', mods: [], repeat: batch });
+    }
+    if (delta.insert) this.transport.send('text_input', { text: delta.insert });
+    this.lastTypedValue = next;
   }
 
   _setLink(state, text) {
@@ -852,13 +909,36 @@ class App {
       });
     }
 
-    $('text-send').addEventListener('click', () => {
-      const input = $('text-input');
-      if (!input.value) return;
-      this.transport.send('text_input', { text: input.value });
-      input.value = '';
+    $('type-prompt').addEventListener('click', () => {
+      haptic(12);
+      this._openKeyboard();
+    });
+
+    const textInput = $('text-input');
+    this.lastTypedValue = '';
+    textInput.addEventListener('input', () => this._sendTypedDiff());
+    textInput.addEventListener('focus', () => {
+      $('type-prompt').classList.add('is-hidden');
+      textInput.value = '';
+      this.lastTypedValue = '';
+    });
+    textInput.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter') return;
+      event.preventDefault();
+      this.transport.send('key_press', { key: 'Return', mods: [] });
+      // The Mac's field has been submitted, so the local mirror no longer reflects it.
+      textInput.value = '';
+      this.lastTypedValue = '';
       haptic(15);
-      toast('Sent');
+    });
+
+    // Clears only the phone's mirror. Wiping the Mac's field instead would be a surprising
+    // amount of destruction to hang on a button labelled "Clear".
+    $('text-clear').addEventListener('click', () => {
+      textInput.value = '';
+      this.lastTypedValue = '';
+      textInput.focus();
+      toast('Cleared here, not on the Mac');
     });
 
     $('address-go').addEventListener('click', () => {

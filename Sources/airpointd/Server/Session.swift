@@ -25,6 +25,8 @@ final class ClientConnection {
     private let pairing: PairingService
     private let originPolicy: OriginPolicy
     private let dryRun: Bool
+    private let focusDetection: Bool
+    private var focusMonitor: FocusMonitor?
     private weak var server: Server?
 
     private let queue = DispatchQueue(label: "com.airpoint.connection")
@@ -60,7 +62,8 @@ final class ClientConnection {
     let peer: String
 
     init(connection: NWConnection, executor: InputExecutor, pairing: PairingService,
-         originPolicy: OriginPolicy, dryRun: Bool, server: Server) {
+         originPolicy: OriginPolicy, dryRun: Bool, focusDetection: Bool, server: Server) {
+        self.focusDetection = focusDetection
         self.connection = connection
         self.executor = executor
         self.pairing = pairing
@@ -543,7 +546,21 @@ final class ClientConnection {
         if !executor.hasPermission && !dryRun {
             Log.warn("connected, but Accessibility permission is missing — input will not work")
         }
+        startFocusMonitoring()
         Log.info("session established with '\(deviceName ?? "device")'")
+    }
+
+    private func startFocusMonitoring() {
+        guard focusDetection, executor.hasPermission, !dryRun else { return }
+        let monitor = FocusMonitor { [weak self] isTextInput in
+            guard let self else { return }
+            self.queue.async {
+                guard self.phase == .authenticated else { return }
+                self.send(.focus, FocusPayload(textInput: isTextInput))
+            }
+        }
+        monitor.start()
+        focusMonitor = monitor
     }
 
     // MARK: - Sending
@@ -612,6 +629,8 @@ final class ClientConnection {
         phase = .closed
         timer?.cancel()
         timer = nil
+        focusMonitor?.stop()
+        focusMonitor = nil
         assembler.reset()
         buffer.removeAll()
         if pointerFrameCount > 0 {
@@ -627,5 +646,5 @@ enum AirPoint {
     /// Version of the controller bundled in Resources/web. Kept separate from the server
     /// version because they are updated for different reasons and compared against
     /// different things.
-    static let controllerVersion = "0.1.8"
+    static let controllerVersion = "0.1.9"
 }

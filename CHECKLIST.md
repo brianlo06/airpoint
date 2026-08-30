@@ -76,7 +76,8 @@ Anything marked **done** has been built *and* exercised, either by `swift test` 
 - [ ] CoreHaptics-quality feedback (currently `navigator.vibrate`, ignored by iOS Safari)
 - [ ] Map the `momentum` flag onto macOS continuous-scroll phases (the client sets it; the
       executor still treats momentum frames as ordinary scrolls)
-- [ ] Text field with live incremental send instead of tap-to-send
+- [x] Live incremental typing instead of tap-to-send, autocorrect- and emoji-safe
+- [x] Keyboard prompt driven by the Mac's focused-element role
 
 ## Phase 6 — Native iOS client — not started
 
