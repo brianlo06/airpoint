@@ -233,9 +233,23 @@ public struct CalibrationPayload: Codable, Equatable, Sendable, ValidatablePaylo
     public var holdMs: Double?
     public var biasRadS: [Double]?
     public var noiseRadS: Double?
+    /// Diagnostics: world "down" in device coordinates, as the client computed it.
+    public var gravity: [Double]?
+    /// Diagnostics: angular velocity in device coordinates, rad/s.
+    public var rate: [Double]?
+    /// Diagnostics: the [yaw, pitch] the client resolved from the two above.
+    ///
+    /// These three exist because sensor-axis conventions differ between browsers and the
+    /// specification, and no amount of reasoning settles what a particular phone actually
+    /// reports. Logging them on the desktop puts the ground truth in front of whoever is
+    /// debugging, instead of requiring them to read numbers off the phone.
+    public var resolved: [Double]?
 
-    public init(stage: Stage, holdMs: Double? = nil, biasRadS: [Double]? = nil, noiseRadS: Double? = nil) {
-        self.stage = stage; self.holdMs = holdMs; self.biasRadS = biasRadS; self.noiseRadS = noiseRadS
+    public init(stage: Stage, holdMs: Double? = nil, biasRadS: [Double]? = nil,
+                noiseRadS: Double? = nil, gravity: [Double]? = nil,
+                rate: [Double]? = nil, resolved: [Double]? = nil) {
+        self.stage = stage; self.holdMs = holdMs; self.biasRadS = biasRadS
+        self.noiseRadS = noiseRadS; self.gravity = gravity; self.rate = rate; self.resolved = resolved
     }
     public func validated() throws -> CalibrationPayload {
         if let bias = biasRadS {
@@ -248,6 +262,14 @@ public struct CalibrationPayload: Codable, Equatable, Sendable, ValidatablePaylo
         }
         if let hold = holdMs, !(hold.isFinite && hold >= 0 && hold <= 60_000) {
             throw ProtocolError.invalid("holdMs out of range")
+        }
+        for (name, values, count, limit) in [("gravity", gravity, 3, 2.0),
+                                             ("rate", rate, 3, 100.0),
+                                             ("resolved", resolved, 2, 100.0)] {
+            guard let values else { continue }
+            guard values.count == count, values.allSatisfy({ $0.isFinite && abs($0) <= limit }) else {
+                throw ProtocolError.invalid("\(name) must be \(count) finite values within ±\(limit)")
+            }
         }
         return self
     }

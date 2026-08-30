@@ -18,7 +18,7 @@ const PROTOCOL_VERSION = 1;
 // against its own version and says so when they differ: a phone holding a stale page in a
 // backgrounded tab reconnects silently over WebSocket and looks perfectly healthy while
 // running months-old code.
-const CLIENT_VERSION = '0.1.3';
+const CLIENT_VERSION = '0.1.4';
 const SEND_HZ = 60;
 const PING_INTERVAL_MS = 2000;
 // Never let a queued motion delta accumulate: by the time a backed-up frame is delivered
@@ -357,6 +357,7 @@ class App {
     this.sentFrames = 0;
     this.lastSentDelta = { dx: 0, dy: 0 };
     this.usingRatePath = false;
+    this.lastSensorReportAt = 0;
 
     this.pipeline.setActive(false);
     this._restoreSensitivity();
@@ -547,17 +548,44 @@ class App {
     if (this.sensors.hasRateStream && gravityDown) {
       this.pipeline.processRate(this.sensors.rotationRate, gravityDown, now);
       this.usingRatePath = true;
+      this._maybeReportSensors();
       return;
     }
 
     // No gyroscope stream: fall back to differencing the orientation quaternion. Works,
     // but inherits the magnetometer's noise in yaw.
     this.usingRatePath = false;
+    this.lastSensorReportAt = 0;
     this.pipeline.process({
       attitude: this.sensors.attitude,
       rotationRate: this.sensors.rotationRate,
       accelerationG: this.sensors.accelerationG,
       timestamp: now,
+    });
+  }
+
+  // Periodically ships the raw sensor frame to the Mac, where it lands in the daemon log.
+  //
+  // Browsers and the specification disagree about sensor axis conventions, and no amount of
+  // reasoning settles what a given phone reports — only measurement does. Sending it to the
+  // desktop puts the numbers where someone debugging is already looking, instead of asking
+  // them to read them off a phone screen while waving it about.
+  _maybeReportSensors() {
+    const now = performance.now();
+    if (now - this.lastSensorReportAt < 1000) return;
+    const resolved = this.pipeline.lastResolved;
+    if (!resolved) return;
+    // Only report while genuinely moving; a still phone tells us nothing.
+    if (Math.hypot(resolved.yaw, resolved.pitch) < 1e-4) return;
+    this.lastSensorReportAt = now;
+
+    const round = (v) => Math.round(v * 1000) / 1000;
+    this.transport.send('calibration', {
+      stage: 'sampling',
+      gravity: [round(resolved.down.x), round(resolved.down.y), round(resolved.down.z)],
+      rate: [round(this.sensors.rotationRate.x), round(this.sensors.rotationRate.y),
+             round(this.sensors.rotationRate.z)],
+      resolved: [round(resolved.yaw), round(resolved.pitch)],
     });
   }
 

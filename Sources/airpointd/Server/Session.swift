@@ -361,6 +361,18 @@ final class ClientConnection {
         """)
     }
 
+    private func logCalibration(_ payload: CalibrationPayload) {
+        func format(_ values: [Double]?) -> String {
+            guard let values else { return "—" }
+            return "(" + values.map { String(format: "%+.2f", $0) }.joined(separator: ", ") + ")"
+        }
+        if payload.stage == .sampling {
+            Log.info("sensor: gravityDown=\(format(payload.gravity)) rate=\(format(payload.rate)) -> [yaw, pitch]=\(format(payload.resolved))")
+        } else {
+            Log.info("calibration \(payload.stage.rawValue) from '\(deviceName ?? "device")'")
+        }
+    }
+
     private func noteRateLimited(_ type: ClientEventType, error: ProtocolError) {
         let now = Date()
         if let last = lastRateLimitNoticeAt[type], now.timeIntervalSince(last) < 1 { return }
@@ -454,7 +466,7 @@ final class ClientConnection {
             }
 
         case .calibration(let calibration):
-            Log.debug("calibration \(calibration.stage.rawValue) from '\(deviceName ?? "device")'")
+            logCalibration(calibration)
         }
     }
 
@@ -615,5 +627,5 @@ enum AirPoint {
     /// Version of the controller bundled in Resources/web. Kept separate from the server
     /// version because they are updated for different reasons and compared against
     /// different things.
-    static let controllerVersion = "0.1.3"
+    static let controllerVersion = "0.1.4"
 }

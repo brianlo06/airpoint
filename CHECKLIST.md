@@ -135,6 +135,13 @@ Anything marked **done** has been built *and* exercised, either by `swift test` 
   reports frames/s and mean px/frame.
 - **Yaw was magnetometer-derived and visibly worse than pitch.** Switched to gyro rate.
 - The velocity clamp bound on nearly every fast flick.
+- **Open: aiming up/down moves the cursor left/right.** The axis decomposition is being fed
+  sensor values that do not match the convention assumed. Two hypotheses were checked and
+  ruled out by measurement rather than argument: the grip assumption (old and new horizontal
+  references are identical for every no-roll grip) and the cursor read-back race (old and new
+  executors pass the burst test identically). A sensor-diagnostics channel now logs the raw
+  gravity vector, angular rate and resolved yaw/pitch on the desktop, so the next round is a
+  measurement rather than another guess.
 
 ## Fixed during Phase 1–3 (recorded because each was a real defect, not a typo)
 

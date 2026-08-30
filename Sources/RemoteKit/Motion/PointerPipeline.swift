@@ -85,8 +85,43 @@ public struct PointerDelta: Equatable, Sendable {
 public final class PointerPipeline {
     public private(set) var tuning: PointerTuning
 
-    /// The device's pointing axis in the device frame: out the back of the phone.
+    /// The device's pointing axis for the attitude-differencing fallback path:
+    /// out the back of the phone.
     private static let pointingAxis = Vector3(0, 0, -1)
+
+    /// The phone's lateral (left-to-right) axis, which is +X in the device frame.
+    ///
+    /// The rate path derives its horizontal reference from this rather than from an assumed
+    /// aiming direction. See `horizontalRight(for:)` for why that matters.
+    private static let lateralAxis = Vector3(1, 0, 0)
+
+    /// The horizontal axis about which "aim higher / aim lower" happens, whatever the grip.
+    ///
+    /// The first version assumed the user aims the *back* of the phone at the screen, as
+    /// though pointing a camera, and derived this axis as `down × (0,0,-1)`. People do not
+    /// hold a remote that way: they hold it flat-ish and point the top edge. In that grip
+    /// `(0,0,-1)` points at the floor, nearly parallel to gravity, so the cross product is
+    /// ill-conditioned and its direction is dominated by whatever small perpendicular
+    /// component remains — which scrambles the axes. On a real phone that showed up as
+    /// aiming up and down moving the cursor left and right.
+    ///
+    /// Taking the horizontal component of the phone's *lateral* axis instead is correct for
+    /// both grips, because tipping the phone about its own left-right axis raises or lowers
+    /// the aim whether you are pointing the top edge or the back. It also still yields zero
+    /// for a pure roll, so roll compensation is preserved.
+    static func horizontalRight(for down: Vector3) -> Vector3? {
+        var lateral = lateralAxis
+        // A phone rolled into landscape puts +X near vertical; fall back to +Y, which is
+        // then the axis lying across the user's view.
+        if abs(lateral.dot(down)) > 0.9 {
+            lateral = Vector3(0, 1, 0)
+        }
+        let horizontal = Vector3(lateral.x - down.x * lateral.dot(down),
+                                 lateral.y - down.y * lateral.dot(down),
+                                 lateral.z - down.z * lateral.dot(down))
+        guard horizontal.length > 1e-3 else { return nil }
+        return horizontal.normalized
+    }
 
     private let yawFilter: MotionFilter
     private let pitchFilter: MotionFilter
@@ -157,9 +192,10 @@ public final class PointerPipeline {
     /// clean gyro/accelerometer fusion and yaw does not. The gyro has no such asymmetry.
     ///
     /// Roll compensation is preserved by resolving the rate onto world axes derived from
-    /// gravity, so the maths stays orientation-agnostic exactly as before:
-    ///   yaw rate   = omega . gravityDown            (rotation about the world vertical)
-    ///   pitch rate = omega . (gravityDown x aim)    (rotation about the world horizontal)
+    /// gravity, so the maths stays orientation-agnostic:
+    ///   yaw rate   = omega . gravityDown       (rotation about the world vertical)
+    ///   pitch rate = omega . horizontalRight   (rotation about the phone's lateral axis,
+    ///                                           projected onto the horizontal plane)
     ///
     /// - Parameters:
     ///   - rate: angular velocity in the device frame, radians/second.
@@ -178,11 +214,7 @@ public final class PointerPipeline {
         let down = gravityDown.normalized
         guard down.length > 0.5 else { return .zero }   // no usable gravity reading
 
-        // Aiming near-vertically makes the horizontal axis degenerate; hold the previous
-        // frame rather than producing a wild value as the cross product collapses.
-        let rightRaw = down.cross(Self.pointingAxis)
-        guard rightRaw.length > 1e-3 else { return .zero }
-        let right = rightRaw.normalized
+        guard let right = Self.horizontalRight(for: down) else { return .zero }
 
         var dYaw = rate.dot(down) * dt
         var dPitch = rate.dot(right) * dt

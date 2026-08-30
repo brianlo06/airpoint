@@ -187,6 +187,27 @@ export function accelerationFactor(speed, tuning) {
 
 const POINTING_AXIS = { x: 0, y: 0, z: -1 };
 
+// The horizontal axis about which "aim higher / aim lower" happens, in any grip.
+//
+// Taking the horizontal component of the phone's own lateral (+X) axis works whether the
+// user points the top edge of the phone at the screen like a remote, or the back of it like
+// a camera, because tipping the phone about its left-right axis raises or lowers the aim
+// either way. It also stays well-conditioned when the phone is held flat, where deriving
+// the axis from an assumed aiming direction collapses to zero.
+export function horizontalRight(down) {
+  let lateral = { x: 1, y: 0, z: 0 };
+  // Rolled into landscape, +X is near vertical and useless as a horizontal reference.
+  if (Math.abs(dot(lateral, down)) > 0.9) lateral = { x: 0, y: 1, z: 0 };
+  const k = dot(lateral, down);
+  const horizontal = {
+    x: lateral.x - down.x * k,
+    y: lateral.y - down.y * k,
+    z: lateral.z - down.z * k,
+  };
+  if (Math.hypot(horizontal.x, horizontal.y, horizontal.z) < 1e-3) return null;
+  return normalize(horizontal);
+}
+
 export class PointerPipeline {
   constructor(tuning = {}) {
     this.tuning = { ...DEFAULT_TUNING, ...tuning };
@@ -264,13 +285,14 @@ export class PointerPipeline {
     const down = normalize(gravityDown);
     if (Math.hypot(down.x, down.y, down.z) < 0.5) return { dx: 0, dy: 0 };
 
-    // Aiming near-vertically collapses the horizontal axis; hold rather than emit garbage.
-    const rightRaw = cross(down, POINTING_AXIS);
-    if (Math.hypot(rightRaw.x, rightRaw.y, rightRaw.z) < 1e-3) return { dx: 0, dy: 0 };
-    const right = normalize(rightRaw);
+    const right = horizontalRight(down);
+    if (!right) return { dx: 0, dy: 0 };
 
     let dYaw = dot(rate, down) * dt;
     let dPitch = dot(rate, right) * dt;
+    // Exposed for the diagnostics channel; costs nothing and turns an argument about
+    // sensor-axis conventions into a measurement.
+    this.lastResolved = { yaw: dYaw, pitch: dPitch, down, right };
 
     this._updateStationaryFromRate(rate, timestamp, dYaw, dPitch);
     dYaw -= this.biasYaw;

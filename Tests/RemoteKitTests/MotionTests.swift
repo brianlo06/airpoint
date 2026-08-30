@@ -539,3 +539,134 @@ final class AngularRatePointerTests: XCTestCase {
         XCTAssertEqual(d.dx, 0)
     }
 }
+
+/// The same gestures, in the grip people actually use.
+///
+/// A phone used as a remote is held flat-ish with the top edge pointing at the screen, not
+/// with the back aimed like a camera. The first implementation assumed the camera grip; in
+/// the remote grip its horizontal reference collapsed and the axes swapped, which on a real
+/// device showed up as "aiming up and down moves the cursor left and right".
+final class GripInvarianceTests: XCTestCase {
+
+    /// Camera grip: phone upright, screen to the user, back aimed at the screen.
+    /// World down is along device -Y.
+    private let cameraGripDown = Vector3(0, -1, 0)
+
+    /// Remote grip: phone flat, screen up, top edge aimed at the screen.
+    /// World down is along device -Z, straight into the screen.
+    private let remoteGripDown = Vector3(0, 0, -1)
+
+    /// Tilted remote grip: how a hand on a sofa arm actually holds it, ~35 degrees up.
+    private var tiltedRemoteGripDown: Vector3 {
+        let angle = 35.0 * .pi / 180
+        return Vector3(0, -sin(angle), -cos(angle)).normalized
+    }
+
+    private func travel(rate: Vector3, down: Vector3, seconds: Double = 0.5) -> PointerDelta {
+        var tuning = PointerTuning()
+        tuning.accelCoefficient = 0
+        let pipeline = PointerPipeline(tuning: tuning)
+        pipeline.isActive = true
+        var t = 100.0
+        var total = PointerDelta.zero
+        _ = pipeline.process(rate: rate, gravityDown: down, timestamp: t)
+        for _ in 0..<Int(seconds * 60) {
+            t += 1.0 / 60
+            let d = pipeline.process(rate: rate, gravityDown: down, timestamp: t)
+            total.dx += d.dx
+            total.dy += d.dy
+        }
+        return total
+    }
+
+    /// Turning the whole phone to the right is a rotation about world down, in every grip.
+    private func turnRight(_ down: Vector3, rate: Double = 0.5) -> Vector3 {
+        let d = down.normalized
+        return Vector3(d.x * rate, d.y * rate, d.z * rate)
+    }
+
+    /// Tipping the aim upward is a positive rotation about the phone's lateral axis.
+    private func aimUp(_ down: Vector3, rate: Double = 0.5) -> Vector3 {
+        guard let right = PointerPipeline.horizontalRight(for: down.normalized) else {
+            return Vector3(0, 0, 0)
+        }
+        return Vector3(right.x * rate, right.y * rate, right.z * rate)
+    }
+
+    func testCameraGripAxes() {
+        let right = travel(rate: turnRight(cameraGripDown), down: cameraGripDown)
+        XCTAssertGreaterThan(right.dx, 100)
+        XCTAssertEqual(right.dy, 0, accuracy: 1.0)
+
+        let up = travel(rate: aimUp(cameraGripDown), down: cameraGripDown)
+        XCTAssertLessThan(up.dy, -100)
+        XCTAssertEqual(up.dx, 0, accuracy: 1.0)
+    }
+
+    /// The regression test for the reported bug: in the remote grip, aiming up must move
+    /// the cursor up and must NOT move it sideways.
+    func testRemoteGripAxes() {
+        let right = travel(rate: turnRight(remoteGripDown), down: remoteGripDown)
+        XCTAssertGreaterThan(right.dx, 100, "turning right must move the cursor right")
+        XCTAssertEqual(right.dy, 0, accuracy: 1.0, "turning right must not move it vertically")
+
+        let up = travel(rate: aimUp(remoteGripDown), down: remoteGripDown)
+        XCTAssertLessThan(up.dy, -100, "aiming up must move the cursor up")
+        XCTAssertEqual(up.dx, 0, accuracy: 1.0, "aiming up must not move it sideways")
+    }
+
+    func testTiltedRemoteGripAxes() {
+        let down = tiltedRemoteGripDown
+        let right = travel(rate: turnRight(down), down: down)
+        XCTAssertGreaterThan(right.dx, 100)
+        XCTAssertEqual(right.dy, 0, accuracy: 1.0)
+
+        let up = travel(rate: aimUp(down), down: down)
+        XCTAssertLessThan(up.dy, -100)
+        XCTAssertEqual(up.dx, 0, accuracy: 1.0)
+    }
+
+    /// The same physical gesture must produce the same travel regardless of grip — that is
+    /// what makes the remote feel identical however you happen to be holding it.
+    func testTravelIsConsistentAcrossGrips() {
+        let camera = travel(rate: turnRight(cameraGripDown), down: cameraGripDown)
+        let remote = travel(rate: turnRight(remoteGripDown), down: remoteGripDown)
+        let tilted = travel(rate: turnRight(tiltedRemoteGripDown), down: tiltedRemoteGripDown)
+        XCTAssertEqual(remote.dx, camera.dx, accuracy: abs(camera.dx) * 0.02)
+        XCTAssertEqual(tilted.dx, camera.dx, accuracy: abs(camera.dx) * 0.02)
+    }
+
+    /// A pure roll about the aim axis must still produce nothing, in either grip.
+    func testRollProducesNothingInBothGrips() {
+        // Camera grip: the aim is device -Z, so roll is rotation about Z.
+        let cameraRoll = travel(rate: Vector3(0, 0, 0.5), down: cameraGripDown)
+        XCTAssertEqual(cameraRoll.dx, 0, accuracy: 1.0)
+        XCTAssertEqual(cameraRoll.dy, 0, accuracy: 1.0)
+
+        // Remote grip: the aim is device +Y, so roll is rotation about Y.
+        let remoteRoll = travel(rate: Vector3(0, 0.5, 0), down: remoteGripDown)
+        XCTAssertEqual(remoteRoll.dx, 0, accuracy: 1.0)
+        XCTAssertEqual(remoteRoll.dy, 0, accuracy: 1.0)
+    }
+
+    func testLandscapeRollFallsBackToTheOtherLateralAxis() {
+        // Phone rolled 90 degrees: device +X now points at the floor, so it cannot serve
+        // as the horizontal reference.
+        let down = Vector3(1, 0, 0)
+        let right = PointerPipeline.horizontalRight(for: down)
+        XCTAssertNotNil(right)
+        XCTAssertEqual(abs(right!.dot(down)), 0, accuracy: 1e-9,
+                       "the horizontal reference must be perpendicular to gravity")
+    }
+
+    func testHorizontalRightIsAlwaysPerpendicularToGravity() {
+        for angle in stride(from: 0.0, through: 180.0, by: 7.5) {
+            let radians = angle * .pi / 180
+            let down = Vector3(0, -sin(radians), -cos(radians)).normalized
+            guard let right = PointerPipeline.horizontalRight(for: down) else { continue }
+            XCTAssertEqual(right.dot(down), 0, accuracy: 1e-9,
+                           "at \(angle) degrees the reference drifted out of horizontal")
+            XCTAssertEqual(right.length, 1, accuracy: 1e-9)
+        }
+    }
+}
