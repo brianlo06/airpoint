@@ -11,14 +11,22 @@
 
 'use strict';
 
-import { PointerPipeline, Calibrator, quatFromDeviceOrientation, quatConjugate, quatRotate } from '/motion.js';
+import {
+  PointerPipeline,
+  Calibrator,
+  quatFromDeviceOrientation,
+  quatConjugate,
+  quatRotate,
+  GyroAxisResolver,
+  applyAxisCandidate,
+} from '/motion.js';
 
 const PROTOCOL_VERSION = 1;
 // Bumped whenever the controller changes in a way that matters. The server compares this
 // against its own version and says so when they differ: a phone holding a stale page in a
 // backgrounded tab reconnects silently over WebSocket and looks perfectly healthy while
 // running months-old code.
-const CLIENT_VERSION = '0.1.4';
+const CLIENT_VERSION = '0.1.5';
 const SEND_HZ = 60;
 const PING_INTERVAL_MS = 2000;
 // Never let a queued motion delta accumulate: by the time a backed-up frame is delivered
@@ -240,6 +248,7 @@ class Sensors extends EventTarget {
     this.sampleCount = 0;
     this.rateSampleCount = 0;
     this.lastRateAt = 0;
+    this.rawRate = null;
     this.started = false;
     this.permissionState = 'unknown';
     this._onOrientation = this._onOrientation.bind(this);
@@ -304,12 +313,15 @@ class Sensors extends EventTarget {
     if (rate && rate.alpha !== null) {
       // rotationRate is in degrees/second, named by the axis each component turns about:
       // alpha about Z, beta about X, gamma about Y.
+      // Stored as the raw [alpha, beta, gamma] triple, deliberately unmapped: which
+      // component belongs to which device axis is a per-browser question that
+      // GyroAxisResolver answers from measurement rather than from assumption.
       const toRad = Math.PI / 180;
-      this.rotationRate = {
-        x: (rate.beta || 0) * toRad,
-        y: (rate.gamma || 0) * toRad,
-        z: (rate.alpha || 0) * toRad,
-      };
+      this.rawRate = [
+        (rate.alpha || 0) * toRad,
+        (rate.beta || 0) * toRad,
+        (rate.gamma || 0) * toRad,
+      ];
       this.rateSampleCount += 1;
       this.lastRateAt = performance.now();
     }
@@ -333,7 +345,7 @@ class Sensors extends EventTarget {
   }
 
   get hasRateStream() {
-    return this.rotationRate !== null && performance.now() - this.lastRateAt < 500;
+    return this.rawRate !== null && performance.now() - this.lastRateAt < 500;
   }
 }
 
@@ -358,6 +370,9 @@ class App {
     this.lastSentDelta = { dx: 0, dy: 0 };
     this.usingRatePath = false;
     this.lastSensorReportAt = 0;
+    this.axes = new GyroAxisResolver();
+    this.previousGravity = null;
+    this.lastGravityAt = null;
 
     this.pipeline.setActive(false);
     this._restoreSensitivity();
@@ -556,6 +571,9 @@ class App {
     // but inherits the magnetometer's noise in yaw.
     this.usingRatePath = false;
     this.lastSensorReportAt = 0;
+    this.axes = new GyroAxisResolver();
+    this.previousGravity = null;
+    this.lastGravityAt = null;
     this.pipeline.process({
       attitude: this.sensors.attitude,
       rotationRate: this.sensors.rotationRate,
@@ -570,9 +588,9 @@ class App {
   // reasoning settles what a given phone reports — only measurement does. Sending it to the
   // desktop puts the numbers where someone debugging is already looking, instead of asking
   // them to read them off a phone screen while waving it about.
-  _maybeReportSensors() {
+  _maybeReportSensors(omega) {
     const now = performance.now();
-    if (now - this.lastSensorReportAt < 1000) return;
+    if (now - this.lastSensorReportAt < 2000) return;
     const resolved = this.pipeline.lastResolved;
     if (!resolved) return;
     // Only report while genuinely moving; a still phone tells us nothing.
@@ -583,8 +601,7 @@ class App {
     this.transport.send('calibration', {
       stage: 'sampling',
       gravity: [round(resolved.down.x), round(resolved.down.y), round(resolved.down.z)],
-      rate: [round(this.sensors.rotationRate.x), round(this.sensors.rotationRate.y),
-             round(this.sensors.rotationRate.z)],
+      rate: [round(omega.x), round(omega.y), round(omega.z)],
       resolved: [round(resolved.yaw), round(resolved.pitch)],
     });
   }
@@ -611,6 +628,7 @@ class App {
       el.textContent = problem
         ? `⚠ ${problem}`
         : `${this.usingRatePath ? 'gyro' : 'orient'} ${hz} Hz · `
+          + `${this.axes.isResolved ? '' : 'axes:resolving · '}`
           + `clutch ${this.pipeline.isActive ? 'ON' : 'off'} · `
           + `Δ ${d.dx.toFixed(1)},${d.dy.toFixed(1)} · sent ${this.sentFrames}`;
       el.classList.toggle('is-bad', problem !== null);

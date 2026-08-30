@@ -15,6 +15,11 @@ import {
   quatRotate,
   softDeadZone,
   DEFAULT_TUNING,
+  GyroAxisResolver,
+  SPEC_AXIS_CANDIDATE,
+  applyAxisCandidate,
+  normalize,
+  cross,
 } from '../Sources/airpointd/Resources/web/motion.js';
 
 let passed = 0;
@@ -163,6 +168,74 @@ console.log(`        0.5 rad/s for 1 s -> dx=${turned.dx.toFixed(0)} px (2200 px
 const stillRate = panByRate({ rate: { x: 0, y: 0, z: 0 }, gravityDown: uprightDown, seconds: 1 });
 check('a still gyro produces no motion',
   Math.abs(stillRate.dx) < 0.001 && Math.abs(stillRate.dy) < 0.001);
+
+// --- gyro axis resolution ----------------------------------------------------
+//
+// Simulates a phone whose browser reports rotationRate under a given convention, and checks
+// that the resolver recovers it from gravity alone. The iOS case is the one measured on a
+// real device: CoreMotion's (x, y, z) passed straight through as (alpha, beta, gamma).
+
+function simulate(trueOmegaSequence, encode) {
+  const resolver = new GyroAxisResolver({ samplesNeeded: 60 });
+  let gravity = normalize({ x: 0.05, y: -0.3, z: -0.95 });
+  let previous = null;
+  const dt = 1 / 60;
+
+  for (const omega of trueOmegaSequence) {
+    // Gravity is fixed in the world, so in the device frame it rotates the other way.
+    const drift = cross(omega, gravity);
+    const next = normalize({
+      x: gravity.x - drift.x * dt,
+      y: gravity.y - drift.y * dt,
+      z: gravity.z - drift.z * dt,
+    });
+    previous = gravity;
+    gravity = next;
+    resolver.update(gravity, previous, encode(omega), dt);
+    if (resolver.isResolved) break;
+  }
+  return resolver;
+}
+
+// A varied gesture: tilt, then turn, then a diagonal. Varied motion is what separates
+// candidates that differ only in the component parallel to gravity.
+const gesture = [];
+for (let i = 0; i < 400; i += 1) {
+  const phase = i / 60;
+  gesture.push({
+    x: 0.9 * Math.sin(phase * 2.0),
+    y: 0.5 * Math.sin(phase * 1.3 + 1),
+    z: 0.7 * Math.sin(phase * 1.7 + 2),
+  });
+}
+
+// Spec convention: alpha is about Z, beta about X, gamma about Y.
+const specEncoded = simulate(gesture, (w) => [w.z, w.x, w.y]);
+check('resolver recovers the W3C axis convention', specEncoded.isResolved
+  && JSON.stringify(applyAxisCandidate(specEncoded.resolved, [1, 2, 3]))
+     === JSON.stringify({ x: 2, y: 3, z: 1 }),
+  `got ${specEncoded.describe()}`);
+console.log(`        spec-encoded -> ${specEncoded.describe()}`);
+
+// iOS convention: CoreMotion (x, y, z) passed straight through.
+const iosEncoded = simulate(gesture, (w) => [w.x, w.y, w.z]);
+check('resolver recovers the iOS CoreMotion pass-through convention', iosEncoded.isResolved
+  && JSON.stringify(applyAxisCandidate(iosEncoded.resolved, [1, 2, 3]))
+     === JSON.stringify({ x: 1, y: 2, z: 3 }),
+  `got ${iosEncoded.describe()}`);
+console.log(`        iOS-encoded  -> ${iosEncoded.describe()}`);
+
+// A sign flip must be caught too.
+const flipped = simulate(gesture, (w) => [-w.x, w.y, w.z]);
+check('resolver recovers a flipped sign', flipped.isResolved
+  && applyAxisCandidate(flipped.resolved, [1, 2, 3]).x === -1,
+  `got ${flipped.describe()}`);
+
+// A still phone carries no information and must not produce a confident wrong answer.
+const stillResolver = new GyroAxisResolver({ samplesNeeded: 60 });
+const flat = normalize({ x: 0, y: -0.3, z: -0.95 });
+for (let i = 0; i < 300; i += 1) stillResolver.update(flat, flat, [0, 0, 0], 1 / 60);
+check('a still phone never resolves from noise', !stillResolver.isResolved);
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);

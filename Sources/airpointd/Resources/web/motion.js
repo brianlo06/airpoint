@@ -182,6 +182,131 @@ export function accelerationFactor(speed, tuning) {
 }
 
 // ---------------------------------------------------------------------------
+// Gyroscope axis resolution
+// ---------------------------------------------------------------------------
+
+// Which raw rotationRate component corresponds to which device axis, and with what sign.
+//
+// This has to be discovered rather than assumed. The specification says
+// rotationRate.alpha/beta/gamma are rates about Z/X/Y, but iOS passes CoreMotion's raw
+// (x, y, z) straight through as (alpha, beta, gamma) without remapping. The result is a
+// cyclic permutation: a nose-up tilt arrives on the component the spec reserves for yaw,
+// so aiming up and down moves the cursor left and right. Measured on a real iPhone.
+//
+// Sniffing the user agent would "work" until the next browser, so instead we let physics
+// decide. Gravity is fixed in the world, so in the device frame it must satisfy
+//
+//     dg/dt = -(omega x g)
+//
+// That identity holds only for the correct axis assignment. Scoring every signed
+// permutation against it over a second of real movement identifies the right one, using
+// data the client already has and no platform detection at all.
+const AXIS_CANDIDATES = (() => {
+  const permutations = [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]];
+  const signs = [
+    [1, 1, 1], [1, 1, -1], [1, -1, 1], [1, -1, -1],
+    [-1, 1, 1], [-1, 1, -1], [-1, -1, 1], [-1, -1, -1],
+  ];
+  const out = [];
+  for (const permutation of permutations) {
+    for (const sign of signs) out.push({ permutation, sign });
+  }
+  return out;
+})();
+
+// raw is [alpha, beta, gamma] in rad/s; returns the device-frame angular velocity.
+export function applyAxisCandidate(candidate, raw) {
+  const { permutation: p, sign: s } = candidate;
+  return { x: raw[p[0]] * s[0], y: raw[p[1]] * s[1], z: raw[p[2]] * s[2] };
+}
+
+export const SPEC_AXIS_CANDIDATE = { permutation: [1, 2, 0], sign: [1, 1, 1] };
+
+export class GyroAxisResolver {
+  constructor({ minRate = 0.35, samplesNeeded = 90, margin = 0.6 } = {}) {
+    this.minRate = minRate;           // ignore near-still frames; they carry no information
+    this.samplesNeeded = samplesNeeded;
+    this.margin = margin;             // how much better the winner must be than the runner-up
+    this.reset();
+  }
+
+  reset() {
+    this.residuals = new Float64Array(AXIS_CANDIDATES.length);
+    this.samples = 0;
+    this.rounds = 0;
+    this.resolved = null;
+  }
+
+  get isResolved() {
+    return this.resolved !== null;
+  }
+
+  // Returns the resolved candidate, or null while still gathering evidence.
+  update(gravity, previousGravity, raw, dt) {
+    if (this.resolved) return this.resolved;
+    if (!gravity || !previousGravity || !(dt > 0)) return null;
+    if (Math.hypot(raw[0], raw[1], raw[2]) < this.minRate) return null;
+
+    const measured = {
+      x: (gravity.x - previousGravity.x) / dt,
+      y: (gravity.y - previousGravity.y) / dt,
+      z: (gravity.z - previousGravity.z) / dt,
+    };
+
+    for (let i = 0; i < AXIS_CANDIDATES.length; i += 1) {
+      const omega = applyAxisCandidate(AXIS_CANDIDATES[i], raw);
+      const predicted = cross(omega, gravity);       // dg/dt = -(omega x g)
+      const ex = measured.x + predicted.x;
+      const ey = measured.y + predicted.y;
+      const ez = measured.z + predicted.z;
+      this.residuals[i] += ex * ex + ey * ey + ez * ez;
+    }
+
+    this.samples += 1;
+    if (this.samples >= this.samplesNeeded) this._decide();
+    return this.resolved;
+  }
+
+  _decide() {
+    let best = 0;
+    let bestScore = Infinity;
+    let secondScore = Infinity;
+    for (let i = 0; i < this.residuals.length; i += 1) {
+      const score = this.residuals[i];
+      if (score < bestScore) {
+        secondScore = bestScore;
+        bestScore = score;
+        best = i;
+      } else if (score < secondScore) {
+        secondScore = score;
+      }
+    }
+
+    // The component of omega along gravity is invisible to this test, so candidates that
+    // differ only there can tie. Demand a clear margin; otherwise keep watching, since more
+    // varied movement will separate them.
+    if (bestScore < secondScore * this.margin) {
+      this.resolved = AXIS_CANDIDATES[best];
+      return;
+    }
+    this.rounds += 1;
+    this.samples = 0;
+    this.residuals.fill(0);
+    // Do not gather forever. The spec mapping is the right default to fall back to.
+    if (this.rounds >= 4) this.resolved = SPEC_AXIS_CANDIDATE;
+  }
+
+  describe() {
+    if (!this.resolved) return 'resolving';
+    const names = ['alpha', 'beta', 'gamma'];
+    const { permutation: p, sign: s } = this.resolved;
+    return ['x', 'y', 'z']
+      .map((axis, i) => `${axis}=${s[i] < 0 ? '-' : ''}${names[p[i]]}`)
+      .join(' ');
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Pipeline
 // ---------------------------------------------------------------------------
 

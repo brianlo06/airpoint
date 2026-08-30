@@ -58,6 +58,35 @@ right = normalize(down × p̂)              // horizontal axis perpendicular to 
 Δpitch = (ω · right) · dt
 ```
 
+### Resolving the gyroscope's axes
+
+The specification says `rotationRate.alpha/beta/gamma` are rates about **Z / X / Y**. iOS
+does not do that: it passes CoreMotion's raw `(x, y, z)` straight through as
+`(alpha, beta, gamma)`. The result is a cyclic permutation, so a nose-up tilt arrives on the
+component reserved for yaw — measured on a real iPhone, where aiming up and down moved the
+cursor left and right while `gravity.y` swung from −0.26 to −0.66 and back.
+
+Sniffing the user agent would work until the next browser. Instead the client derives the
+mapping from physics. Gravity is fixed in the world, so in the device frame it must satisfy
+
+```
+dg/dt = −(ω × g)
+```
+
+which holds **only** for the correct axis assignment. `GyroAxisResolver` scores all 48
+signed permutations against that identity over a second of real movement and takes the
+winner, requiring a clear margin over the runner-up before committing. The component of ω
+parallel to gravity is invisible to this test, so ties are possible; varied motion separates
+them, and after four inconclusive rounds it falls back to the spec mapping.
+
+Until the axes are resolved — and whenever there is no gyroscope stream — the client uses
+the attitude-differencing path below. That path is correct on every browser and merely
+noisier in yaw, so the cursor works from the first frame and improves once the resolver
+commits.
+
+This is a web-platform problem only. The native iOS client uses `CMDeviceMotion`, whose axes
+are unambiguous, which is why the resolver lives in `motion.js` and not in `RemoteKit`.
+
 `down` is derived from the orientation quaternion rather than from
 `accelerationIncludingGravity`, for two reasons: the accelerometer reading is polluted by
 hand movement, and browsers disagree about its sign. Gravity's direction depends only on

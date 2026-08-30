@@ -135,13 +135,14 @@ Anything marked **done** has been built *and* exercised, either by `swift test` 
   reports frames/s and mean px/frame.
 - **Yaw was magnetometer-derived and visibly worse than pitch.** Switched to gyro rate.
 - The velocity clamp bound on nearly every fast flick.
-- **Open: aiming up/down moves the cursor left/right.** The axis decomposition is being fed
-  sensor values that do not match the convention assumed. Two hypotheses were checked and
-  ruled out by measurement rather than argument: the grip assumption (old and new horizontal
-  references are identical for every no-roll grip) and the cursor read-back race (old and new
-  executors pass the burst test identically). A sensor-diagnostics channel now logs the raw
-  gravity vector, angular rate and resolved yaw/pitch on the desktop, so the next round is a
-  measurement rather than another guess.
+- **Aiming up/down moved the cursor left/right: iOS reports rotationRate under CoreMotion's
+  axis convention, not the W3C one.** Found by logging the raw gravity vector and angular
+  rate to the desktop and correlating them: gravity.y swung -0.26 -> -0.66 -> -0.27 (a real
+  tilt) while the rotation appeared on the component the spec reserves for yaw. Two earlier
+  hypotheses were ruled out by measurement first — the grip assumption (old and new
+  horizontal references are identical for every no-roll grip) and a cursor read-back race
+  (both executors pass the burst test identically). Fixed by deriving the axis mapping from
+  `dg/dt = -(omega x g)` rather than assuming or sniffing it.
 
 ## Fixed during Phase 1–3 (recorded because each was a real defect, not a typo)
 
