@@ -26,7 +26,7 @@ const PROTOCOL_VERSION = 1;
 // against its own version and says so when they differ: a phone holding a stale page in a
 // backgrounded tab reconnects silently over WebSocket and looks perfectly healthy while
 // running months-old code.
-const CLIENT_VERSION = '0.1.5';
+const CLIENT_VERSION = '0.1.6';
 const SEND_HZ = 60;
 const PING_INTERVAL_MS = 2000;
 // Never let a queued motion delta accumulate: by the time a backed-up frame is delivered
@@ -242,7 +242,6 @@ class Sensors extends EventTarget {
   constructor() {
     super();
     this.attitude = null;
-    this.rotationRate = null;
     this.accelerationG = null;
     this.lastSampleAt = 0;
     this.sampleCount = 0;
@@ -373,6 +372,7 @@ class App {
     this.axes = new GyroAxisResolver();
     this.previousGravity = null;
     this.lastGravityAt = null;
+    this.sensorError = null;
 
     this.pipeline.setActive(false);
     this._restoreSensitivity();
@@ -549,34 +549,54 @@ class App {
   }
 
   _onSensorSample() {
+    // A throw inside a DOM event listener is swallowed by the browser: motion stops dead
+    // and nothing on either side reports a reason. That failure has already cost one
+    // debugging round, so it is caught here and surfaced instead.
+    try {
+      this._processSensorSample();
+    } catch (error) {
+      this.sensorError = error && error.message ? error.message : String(error);
+    }
+  }
+
+  _processSensorSample() {
     if (!this.sensors.attitude) return;
 
+    const now = performance.now() / 1000;
+    const gravityDown = this.sensors.gravityDown;
+    const raw = this.sensors.rawRate;
+
     if (this.calibrating) {
-      const result = this.calibrator.add(this.sensors.rotationRate);
+      // Calibration measures the gyro noise floor, so it needs a magnitude, not axes —
+      // the raw triple is fine even before the axis convention is known.
+      const result = this.calibrator.add(raw ? { x: raw[0], y: raw[1], z: raw[2] } : null);
       if (result) this._finishCalibration(result);
       return;
     }
 
-    const now = performance.now() / 1000;
-    const gravityDown = this.sensors.gravityDown;
+    if (this.sensors.hasRateStream && gravityDown && raw) {
+      const dt = this.lastGravityAt === null ? 0 : now - this.lastGravityAt;
+      this.axes.update(gravityDown, this.previousGravity, raw, dt);
+      this.previousGravity = gravityDown;
+      this.lastGravityAt = now;
 
-    if (this.sensors.hasRateStream && gravityDown) {
-      this.pipeline.processRate(this.sensors.rotationRate, gravityDown, now);
-      this.usingRatePath = true;
-      this._maybeReportSensors();
-      return;
+      if (this.axes.isResolved) {
+        const omega = applyAxisCandidate(this.axes.resolved, raw);
+        this.pipeline.processRate(omega, gravityDown, now);
+        this.usingRatePath = true;
+        this._maybeReportSensors(omega);
+        return;
+      }
     }
 
-    // No gyroscope stream: fall back to differencing the orientation quaternion. Works,
-    // but inherits the magnetometer's noise in yaw.
+    // Until the gyroscope's axis convention has been identified — and whenever there is no
+    // gyroscope stream at all — difference the orientation quaternion instead. That path is
+    // correct on every browser and merely noisier in yaw, so the cursor works from the first
+    // frame rather than waiting on calibration.
     this.usingRatePath = false;
-    this.lastSensorReportAt = 0;
-    this.axes = new GyroAxisResolver();
-    this.previousGravity = null;
-    this.lastGravityAt = null;
     this.pipeline.process({
       attitude: this.sensors.attitude,
-      rotationRate: this.sensors.rotationRate,
+      rotationRate: raw ? { x: raw[0], y: raw[1], z: raw[2] } : null,
       accelerationG: this.sensors.accelerationG,
       timestamp: now,
     });
@@ -591,6 +611,11 @@ class App {
   _maybeReportSensors(omega) {
     const now = performance.now();
     if (now - this.lastSensorReportAt < 2000) return;
+    if (this.sensorError) {
+      this.lastSensorReportAt = now;
+      this.transport.send('calibration', { stage: 'failed' });
+      return;
+    }
     const resolved = this.pipeline.lastResolved;
     if (!resolved) return;
     // Only report while genuinely moving; a still phone tells us nothing.
@@ -621,7 +646,8 @@ class App {
       if (!el) return;
 
       let problem = null;
-      if (!Sensors.isAvailable) problem = 'this browser exposes no motion sensors';
+      if (this.sensorError) problem = `motion pipeline error: ${this.sensorError}`;
+      else if (!Sensors.isAvailable) problem = 'this browser exposes no motion sensors';
       else if (hz === 0) problem = 'no sensor data reaching the page';
 
       const d = this.lastSentDelta;

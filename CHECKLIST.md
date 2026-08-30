@@ -118,6 +118,11 @@ Anything marked **done** has been built *and* exercised, either by `swift test` 
 7. **`scroll` momentum is accepted and validated but not yet mapped** to macOS continuous
    scroll phases.
 8. **No CI yet.** `swift test` and `tools/dev.sh` run locally; nothing runs them on push.
+9. **The controller has no unit tests of its own**, only the two Node harnesses in `tools/`.
+   That gap let a dangling reference ship: every pipeline test passed while the wiring
+   between sensors, resolver and pipeline was broken. `tools/sensor-flow-check.mjs` now
+   covers that seam, but it mirrors `App._processSensorSample` by hand rather than importing
+   it, so the two can still drift.
 
 ## Found by real-device testing
 
