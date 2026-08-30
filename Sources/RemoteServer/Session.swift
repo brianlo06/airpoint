@@ -52,6 +52,8 @@ final class ClientConnection: RemoteSession {
     private var authenticatedAt: Date?
     private var announcedMotion = false
     private var warnedAboutMissingMotion = false
+    /// Whether the handler was ever told this connection became a session.
+    private var announcedToHandler = false
     private var lastInboundAt = Date()
     private var sessionExpiresAt = Date().addingTimeInterval(Limits.sessionLifetime)
     private var timer: DispatchSourceTimer?
@@ -503,6 +505,7 @@ final class ClientConnection: RemoteSession {
             features: handler.features(for: self),
             permissions: handler.permissions(for: self)
         ))
+        announcedToHandler = true
         handler.sessionDidBegin(self)
         Log.info("session established with '\(deviceName ?? "device")'")
     }
@@ -597,7 +600,13 @@ final class ClientConnection: RemoteSession {
             Log.info("session summary: \(pointerFrameCount) pointer frames, \(Int(pointerPixelsMoved)) px of travel")
         }
         connection.cancel()
-        handler.sessionDidEnd(self)
+        // Only if it ever began. Every plain HTTPS request for a static file arrives as a
+        // connection too, and telling the host that a player "left" for each one produced
+        // phantom joins and leaves in the game built on this.
+        if announcedToHandler {
+            announcedToHandler = false
+            handler.sessionDidEnd(self)
+        }
         server?.remove(self)
     }
 }

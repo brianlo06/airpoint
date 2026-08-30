@@ -67,6 +67,19 @@ Anything marked **done** has been built *and* exercised, either by `swift test` 
 - [x] AirPoint rebuilt on the seam as `PointerHandler`; all 111 tests and 19 protocol
       assertions still pass, and `Origin`/`Host` policy still verified live
 
+## Found by building a second project on the library
+
+Both were invisible from inside AirPoint and appeared within minutes of a second host
+existing, which is the argument for doing the extraction rather than planning it.
+
+- `PairingService` held its approver **weakly**. A caller constructing one inline saw it
+  deallocated at once, and every pairing was then refused with "no approval interface
+  available" — indistinguishable from a wrong code. AirPoint never hit it only because its
+  approver happened to be a top-level `let`. Now held strongly, and the nil case logs.
+- `sessionDidEnd` fired for connections that never became sessions, so every plain HTTPS
+  request for a static file looked to the host like a player joining and leaving. Guarded on
+  whether the session was ever announced.
+
 ## Phase 4 — Menu-bar app and pairing UX — not started
 
 - [ ] SwiftUI `MenuBarExtra` agent (`LSUIElement`), replacing the terminal

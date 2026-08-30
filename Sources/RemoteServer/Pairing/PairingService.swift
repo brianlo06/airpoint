@@ -27,7 +27,14 @@ public final class PairingService {
     private let queue = DispatchQueue(label: "com.airpoint.pairing")
     private let trustStore: TrustStore
     private let attempts = AttemptTracker()
-    private weak var approver: PairingApprover?
+    /// Held strongly.
+    ///
+    /// This was weak, to avoid a retain cycle with a UI that owns the service. The failure
+    /// mode was far worse than the cycle it prevented: a caller that constructs the approver
+    /// inline sees it deallocated immediately, and every pairing is then refused with "no
+    /// approval interface available" — which looks exactly like a wrong code. An approver
+    /// has no reason to hold the service, so ownership belongs here.
+    private let approver: PairingApprover?
 
     private var secret: PairingSecret
     /// The generation immediately before `secret`. Kept only so that a failed proof can be
@@ -164,6 +171,7 @@ public final class PairingService {
         Log.info("valid pairing proof via \(channel == .qr ? "QR" : "typed code") from \(peer)")
 
         guard let approver else {
+            Log.error("a device paired correctly but there is no approval interface; refusing")
             completion(.rejected(ProtocolError(.pairRejected, "no approval interface available")))
             return
         }
