@@ -24,6 +24,10 @@ let package = Package(
             name: "RemoteServer",
             dependencies: ["RemoteKit"],
             path: "Sources/RemoteServer",
+            // Controller primitives every host needs: the motion pipeline with its
+            // gyroscope axis resolver, and the live-typing diff. Shipping them with the
+            // library means a second project reuses the subtle code instead of copying it.
+            resources: [.copy("Resources/shared")],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         .executableTarget(

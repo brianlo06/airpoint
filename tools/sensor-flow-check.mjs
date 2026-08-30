@@ -16,7 +16,7 @@ import {
   quatFromDeviceOrientation,
   normalize,
   cross,
-} from '../Sources/airpointd/Resources/web/motion.js';
+} from '../Sources/RemoteServer/Resources/shared/motion.js';
 
 // Mirrors App._processSensorSample. Kept deliberately close to it: if that method changes
 // shape, this should be updated in step.

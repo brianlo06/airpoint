@@ -4,7 +4,7 @@
 //   node tools/typing-check.mjs
 
 import { computeTypingDelta, backspaceBatches }
-  from '../Sources/airpointd/Resources/web/typing.js';
+  from '../Sources/RemoteServer/Resources/shared/typing.js';
 
 let passed = 0;
 let failed = 0;

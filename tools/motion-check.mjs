@@ -20,7 +20,7 @@ import {
   applyAxisCandidate,
   normalize,
   cross,
-} from '../Sources/airpointd/Resources/web/motion.js';
+} from '../Sources/RemoteServer/Resources/shared/motion.js';
 
 let passed = 0;
 let failed = 0;

@@ -78,10 +78,15 @@ public struct StaticFiles {
         // which never reaches the server at all.
         let cleanPath = path.components(separatedBy: "?").first ?? path
         guard let filename = content.allowlist[cleanPath] else { return nil }
-        guard let url = content.bundle.url(forResource: filename, withExtension: nil,
-                                           subdirectory: content.subdirectory),
-              let data = try? Data(contentsOf: url) else {
-            Log.error("controller asset '\(filename)' is missing from the bundle")
+
+        // The host's own bundle wins; anything it does not carry falls back to the
+        // primitives shipped with this library, so every host serves the same motion
+        // pipeline rather than a drifting copy of it.
+        let url = content.bundle.url(forResource: filename, withExtension: nil,
+                                     subdirectory: content.subdirectory)
+            ?? Bundle.module.url(forResource: filename, withExtension: nil, subdirectory: "shared")
+        guard let url, let data = try? Data(contentsOf: url) else {
+            Log.error("controller asset '\(filename)' is missing from both the host bundle and RemoteServer")
             return nil
         }
         let ext = (filename as NSString).pathExtension
