@@ -14,10 +14,21 @@ but not built — see `CHECKLIST.md` for the exact line between the two.
 
 ---
 
+## Requirements
+
+- **macOS 13 or later** on the computer being controlled.
+- **Xcode command line tools** (`xcode-select --install`). No Xcode project, no CocoaPods,
+  no npm install — `swift build` is the whole toolchain and there are zero third-party
+  dependencies.
+- **A phone on the same Wi-Fi network**, with any modern browser. iOS Safari and Android
+  Chrome are both known to work; the controller adapts to each browser's sensor conventions
+  at runtime rather than assuming one (see `docs/05-motion.md`).
+- **Node 22+**, only to run the test harnesses in `tools/`. Not needed to use AirPoint.
+
 ## Quick start
 
 ```bash
-git clone <this repo> && cd airpoint
+git clone https://github.com/<you>/airpoint.git && cd airpoint
 swift build
 
 # Check the Accessibility permission end to end (draws a square with the real cursor)
@@ -222,6 +233,28 @@ session. `docs/04-security.md` has the full threat model; the short version:
 
 ---
 
+## Building something else on this
+
+The parts worth reusing are deliberately separated from the remote-control product:
+
+- **`Sources/RemoteKit/`** is platform-agnostic and depends on nothing but Foundation and
+  CryptoKit. Versioned message envelope, validation with explicit clamp-versus-reject rules,
+  a key allowlist, token-bucket rate limiting, pairing crypto, and the motion pipeline. It
+  builds for macOS and iOS.
+- **`Sources/airpointd/Server/`** is a self-contained answer to "let a phone talk to this
+  Mac securely over the LAN": self-signed TLS with SAN management, a hand-rolled HTTP/1.1 and
+  RFC 6455 server sharing one port, and `Origin`/`Host` allowlists. Nothing in it is specific
+  to cursors.
+- **`Sources/airpointd/Input/`** is the only code that touches `CGEvent`, behind an
+  `InputExecutor` protocol with a recording implementation for tests. Swap it for a different
+  backend without touching anything above.
+- **`Sources/airpointd/Resources/web/`** is plain ES modules with no build step. `motion.js`
+  and `typing.js` are dependency-free and directly reusable.
+
+The protocol is versioned (`docs/03-protocol.md`) and every limit lives in one file
+(`Limits.swift`), so a fork can change policy without hunting through the code.
+
 ## Licence
 
-Not yet chosen.
+MIT — see `LICENSE`. Change it if you would rather use something else; nothing in the code
+depends on the choice.

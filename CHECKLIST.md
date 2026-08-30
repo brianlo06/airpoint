@@ -127,7 +127,9 @@ Anything marked **done** has been built *and* exercised, either by `swift test` 
    are Phase 5.
 7. **`scroll` momentum is accepted and validated but not yet mapped** to macOS continuous
    scroll phases.
-8. **No CI yet.** `swift test` and `tools/dev.sh` run locally; nothing runs them on push.
+8. **CI runs on push** (`.github/workflows/ci.yml`): build, 111 unit tests, all three browser
+   harnesses, and a real protocol session against a live TLS listener in `--dry-run`.
+   What CI cannot cover is anything needing the Accessibility permission or a real phone.
 9. **The controller has no unit tests of its own**, only the two Node harnesses in `tools/`.
    That gap let a dangling reference ship: every pipeline test passed while the wiring
    between sensors, resolver and pipeline was broken. `tools/sensor-flow-check.mjs` now

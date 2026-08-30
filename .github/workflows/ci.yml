@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: swift --version && node --version
+
+      - name: Build
+        run: swift build
+
+      - name: Unit tests
+        run: swift test
+
+      # The controller is plain ES modules with no build step, so these run the exact files
+      # the daemon serves. They cover the seams that unit tests do not: the sensor wiring,
+      # the gyroscope axis resolution, and the live-typing diff.
+      - name: Browser motion pipeline
+        run: node tools/motion-check.mjs
+
+      - name: Controller sensor flow
+        run: node tools/sensor-flow-check.mjs
+
+      - name: Typing diff
+        run: node tools/typing-check.mjs
+
+      # A real session against a real TLS listener: certificate generation, the HTTP and
+      # WebSocket server, pairing, validation, rate limiting and the version gate.
+      # --dry-run means no input is ever posted, so no Accessibility permission is needed.
+      - name: Protocol integration
+        run: |
+          set -euo pipefail
+          STATE="$(mktemp -d)/airpoint"
+          ./.build/debug/airpointd \
+            --dry-run --bind 127.0.0.1 --auto-approve \
+            --port 8443 --state-dir "$STATE" --log-level info > /tmp/airpointd.log 2>&1 &
+          DAEMON=$!
+          trap 'kill $DAEMON 2>/dev/null || true' EXIT
+          # Wait for the pairing code, not merely for "listening": the banner is written
+          # after the listener comes up, so grepping too early finds nothing.
+          for _ in $(seq 1 80); do
+            if grep -q 'Pairing code:' /tmp/airpointd.log; then break; fi
+            sleep 0.25
+          done
+          CODE=$(grep -o 'Pairing code:  [0-9]*' /tmp/airpointd.log | tail -1 | awk '{print $3}')
+          if [ -z "$CODE" ]; then echo "daemon did not start"; cat /tmp/airpointd.log; exit 1; fi
+          node tools/probe.mjs --code "$CODE"
+
+      - name: Daemon log on failure
+        if: failure()
+        run: cat /tmp/airpointd.log || true

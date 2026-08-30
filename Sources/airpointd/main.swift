@@ -30,8 +30,12 @@ subjectNames.append("localhost")
 subjectNames.append("127.0.0.1")
 subjectNames = Array(NSOrderedSet(array: subjectNames)) as? [String] ?? subjectNames
 
-guard subjectNames.count > 2 else {
-    Log.error("no private network interface found. Connect this Mac to the same Wi-Fi network as your phone and try again.")
+// A Mac with no LAN interface can still serve loopback, which is what CI and local
+// development use. Only the real thing needs a network a phone could reach.
+let hasPrivateInterface = !NetworkInterfaces.privateIPv4Addresses().isEmpty
+let isLoopbackOnly = ["127.0.0.1", "::1", "localhost"].contains(config.bindHost ?? "")
+if !hasPrivateInterface && !isLoopbackOnly {
+    Log.error("no private network interface found. Connect this Mac to the same Wi-Fi network as your phone and try again, or pass --bind 127.0.0.1 to run on loopback only.")
     exit(1)
 }
 

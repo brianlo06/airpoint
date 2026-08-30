@@ -34,9 +34,11 @@ echo "==> starting airpointd (dry-run, loopback, state in $STATE_DIR)"
 DAEMON_PID=$!
 trap 'kill $DAEMON_PID 2>/dev/null || true' EXIT
 
-# `grep -q ... && break` would trip `set -e` on every miss, so branch explicitly.
-for _ in $(seq 1 40); do
-  if grep -q "listening on port" "$LOG"; then break; fi
+# Wait for the pairing code rather than for "listening": the banner is written after the
+# listener comes up, so grepping too early finds an empty code.
+# (`grep -q ... && break` would trip `set -e` on every miss, so branch explicitly.)
+for _ in $(seq 1 60); do
+  if grep -q 'Pairing code:' "$LOG"; then break; fi
   sleep 0.2
 done
 
