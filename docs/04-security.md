@@ -47,6 +47,18 @@ no approval dialog, but a **visible** menu-bar state change and a notification.
 The typed-code path is identical except the QR's SPKI pin is absent, so T3 is not covered. The UI
 says so: *"Scanning the QR code is more secure than typing the code."*
 
+### Multi-device codes
+
+A pairing code is single-use by default: it is shown to admit one device, and reusing it
+would let a second in on the strength of a screenshot. A host expecting several devices to
+join from one code on a television sets `consumeOnSuccess: false` on `PairingService`.
+
+That is a real relaxation, made deliberately and only where the product requires it. What
+still holds: the code expires (5 minutes), **every device is still approved by a human**,
+and the five-attempt lockout is unchanged. What is given up: someone who photographs the
+screen within the TTL can attempt to join — and will appear as an approval prompt on the
+host, which is the control that actually matters.
+
 **Deliberately deferred:** a PAKE (SPAKE2/CPace) would let the 6-digit code resist offline attack
 and remove the pin dependency. It is the right long-term answer and is noted in the plan; for v1
 the combination of short TTL, lockout, and mandatory human approval is proportionate.

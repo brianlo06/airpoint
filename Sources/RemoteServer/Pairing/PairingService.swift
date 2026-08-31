@@ -36,6 +36,15 @@ public final class PairingService {
     /// has no reason to hold the service, so ownership belongs here.
     private let approver: PairingApprover?
 
+    /// Whether a successful pairing burns the code.
+    ///
+    /// True for a remote: the code is shown to admit one device, and reusing it would let a
+    /// second device in on the strength of a screenshot. False for a host that expects
+    /// several devices to join from one code displayed on a television — which is not a
+    /// weakening as long as the code still expires and every device is still approved by a
+    /// human, but it is a deliberate choice rather than a default.
+    private let consumeOnSuccess: Bool
+
     private var secret: PairingSecret
     /// The generation immediately before `secret`. Kept only so that a failed proof can be
     /// identified as "you used the previous code" rather than reported as a wrong code — a
@@ -46,9 +55,11 @@ public final class PairingService {
     /// by a second device that also observed the QR.
     private var consumed = false
 
-    public init(trustStore: TrustStore, approver: PairingApprover?) {
+    public init(trustStore: TrustStore, approver: PairingApprover?,
+                consumeOnSuccess: Bool = true) {
         self.trustStore = trustStore
         self.approver = approver
+        self.consumeOnSuccess = consumeOnSuccess
         self.secret = PairingSecret()
     }
 
@@ -203,7 +214,7 @@ public final class PairingService {
                 Log.info("user denied pairing for '\(hello.deviceName)'")
                 settle(.rejected(ProtocolError(.pairRejected, "the pairing request was declined")))
             case .approve, .approveAndTrust:
-                self.queue.sync { self.consumed = true }
+                if self.consumeOnSuccess { self.queue.sync { self.consumed = true } }
                 var trusted = false
                 if case .approveAndTrust = decision {
                     if let publicKey = hello.auth.publicKey {
