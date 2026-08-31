@@ -212,26 +212,11 @@ struct PairingSheet: View {
     }
 }
 
-/// Renders the pairing URL as a QR image, using the same generator as the terminal banner.
+/// Wraps the library's QR renderer for AppKit. One implementation, shared with every other
+/// host — the game puts the same code on a television.
 enum QRImage {
     static func make(from text: String) -> NSImage? {
-        guard !text.isEmpty, let matrix = QRCode.matrix(for: text) else { return nil }
-        let size = matrix.count
-        let quiet = 2
-        let side = size + quiet * 2
-
-        let image = NSImage(size: NSSize(width: side, height: side))
-        image.lockFocus()
-        NSColor.white.setFill()
-        NSRect(x: 0, y: 0, width: side, height: side).fill()
-        NSColor.black.setFill()
-        for (row, cells) in matrix.enumerated() {
-            for (column, isDark) in cells.enumerated() where isDark {
-                // Flipped vertically: the matrix is top-down, AppKit draws bottom-up.
-                NSRect(x: column + quiet, y: side - 1 - (row + quiet), width: 1, height: 1).fill()
-            }
-        }
-        image.unlockFocus()
-        return image
+        guard !text.isEmpty, let image = QRCode.cgImage(for: text) else { return nil }
+        return NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
     }
 }

@@ -54,6 +54,36 @@ public enum QRCode {
         return lines.joined(separator: "\n")
     }
 
+    /// Renders the code as an image, one pixel per module plus a quiet zone.
+    ///
+    /// Deliberately unscaled: the caller magnifies it with nearest-neighbour filtering, so
+    /// the modules stay perfectly square at any size. Smoothing a QR code is the fastest way
+    /// to make it unscannable, and it is exactly what a naive image resize does.
+    ///
+    /// The quiet zone is not optional decoration — a code drawn flush against other content
+    /// often will not scan at all.
+    public static func cgImage(for text: String, quietZone: Int = 3) -> CGImage? {
+        guard let matrix = matrix(for: text), !matrix.isEmpty else { return nil }
+        let size = matrix.count
+        let side = size + quietZone * 2
+
+        var pixels = [UInt8](repeating: 255, count: side * side)
+        for (row, cells) in matrix.enumerated() {
+            for (column, isDark) in cells.enumerated() where isDark {
+                pixels[(row + quietZone) * side + (column + quietZone)] = 0
+            }
+        }
+
+        guard let colorSpace = CGColorSpace(name: CGColorSpace.linearGray),
+              let context = CGContext(data: &pixels, width: side, height: side,
+                                      bitsPerComponent: 8, bytesPerRow: side,
+                                      space: colorSpace,
+                                      bitmapInfo: CGImageAlphaInfo.none.rawValue) else {
+            return nil
+        }
+        return context.makeImage()
+    }
+
     /// The module matrix, `true` where a module is dark.
     public static func matrix(for text: String) -> [[Bool]]? {
         guard let filter = CIFilter(name: "CIQRCodeGenerator") else { return nil }
