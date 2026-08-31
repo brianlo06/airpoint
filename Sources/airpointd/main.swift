@@ -2,6 +2,7 @@ import Foundation
 import CoreGraphics
 import RemoteKit
 import RemoteServer
+import AirPointCore
 
 // MARK: - Startup
 
@@ -85,7 +86,7 @@ let serverConfig = ServerConfig(
     expectedClientVersion: AirPoint.controllerVersion,
     // One device at a time: two phones fighting over one cursor is not a feature.
     maxConcurrentSessions: 1,
-    staticContent: .webController(bundle: Bundle.module)
+    staticContent: .airPointController
 )
 
 let server = Server(config: serverConfig, handler: handler, pairing: pairing,

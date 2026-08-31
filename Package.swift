@@ -12,7 +12,10 @@ let package = Package(
         // Published as a library so other projects can be built on it — the game in the
         // sibling repo consumes exactly this.
         .library(name: "RemoteServer", targets: ["RemoteServer"]),
+        .library(name: "AirPointCore", targets: ["AirPointCore"]),
         .executable(name: "airpointd", targets: ["airpointd"]),
+        // The menu-bar app: same daemon, with a UI instead of a terminal.
+        .executable(name: "AirPointApp", targets: ["AirPointApp"]),
     ],
     targets: [
         .target(
@@ -30,11 +33,25 @@ let package = Package(
             resources: [.copy("Resources/shared")],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
+        // The cursor remote itself: CGEvent, focus detection, and the controller assets.
+        // A library so the CLI and the menu-bar app are the same program with two faces.
+        .target(
+            name: "AirPointCore",
+            dependencies: ["RemoteKit", "RemoteServer"],
+            path: "Sources/AirPointCore",
+            resources: [.copy("Resources/web")],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
         .executableTarget(
             name: "airpointd",
-            dependencies: ["RemoteKit", "RemoteServer"],
+            dependencies: ["RemoteKit", "RemoteServer", "AirPointCore"],
             path: "Sources/airpointd",
-            resources: [.copy("Resources/web")],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        .executableTarget(
+            name: "AirPointApp",
+            dependencies: ["RemoteKit", "RemoteServer", "AirPointCore"],
+            path: "Sources/AirPointApp",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         .testTarget(

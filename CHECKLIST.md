@@ -80,17 +80,23 @@ existing, which is the argument for doing the extraction rather than planning it
   request for a static file looked to the host like a player joining and leaving. Guarded on
   whether the session was ever announced.
 
-## Phase 4 — Menu-bar app and pairing UX — not started
+## Phase 4 — Menu-bar app and pairing UX — **mostly done**
 
-- [ ] SwiftUI `MenuBarExtra` agent (`LSUIElement`), replacing the terminal
-- [ ] On-screen QR and code, live countdown, one-tap regenerate
-- [ ] Approve/Deny/Approve-and-trust sheet replacing `ConsoleApprover`
-- [ ] Connected-device indicator that changes *shape*, not just colour
-- [ ] Panic disconnect: menu item + global hotkey
-- [ ] First-run permission wizard with a deep link to the Accessibility pane
-- [ ] Trusted-device list with per-device revoke and "forget all"
-- [ ] Troubleshooting panel (addresses, firewall state, permission state, last errors)
-- [ ] Switch to `--keychain` once the app has a stable signed code identity
+- [x] SwiftUI `MenuBarExtra` agent (accessory activation policy, no Dock icon)
+- [x] On-screen QR and code, live countdown, one-click regenerate
+- [x] Approve / Allow once / Allow and remember sheet, replacing `ConsoleApprover`
+- [x] Status icon that changes *shape*, not just colour
+- [x] Panic disconnect, always visible while running rather than behind a submenu
+- [x] Accessibility prompt with an explanation and a deep link, polled so the switch takes
+      effect without a relaunch
+- [x] Trusted-device list with per-device revoke and "forget all"
+- [x] `AirPointCore` extracted so the CLI and the app are one program, not two
+- [ ] Global hotkey for panic disconnect
+- [ ] Troubleshooting panel (firewall state, last errors)
+- [ ] Signing and notarisation, and `--keychain` once there is a stable code identity
+- [ ] **The app has not been driven by a phone yet.** It starts, serves the controller,
+      enforces the Host allowlist and routes a pairing request to the sheet, but no device
+      has been approved through the UI.
 
 ## Phase 5 — Full control surface — not started
 

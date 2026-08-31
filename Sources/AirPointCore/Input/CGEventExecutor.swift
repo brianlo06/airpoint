@@ -12,7 +12,7 @@ import RemoteKit
 /// Requires the Accessibility permission (System Settings ▸ Privacy & Security ▸
 /// Accessibility). Without it `CGEvent.post` silently does nothing, which is why
 /// `hasPermission` is checked and surfaced to the phone rather than being assumed.
-final class CGEventExecutor: InputExecutor {
+public final class CGEventExecutor: InputExecutor {
 
     private let source: CGEventSource?
     private let queue = DispatchQueue(label: "com.airpoint.input", qos: .userInteractive)
@@ -38,7 +38,7 @@ final class CGEventExecutor: InputExecutor {
     /// may have picked up a real mouse, or another app may have warped the cursor.
     private static let resyncInterval: TimeInterval = 0.5
 
-    init() {
+    public init() {
         // .hidSystemState posts as though the events came from the hardware, which is what
         // makes them reach apps that filter on event source, including full-screen video players.
         source = CGEventSource(stateID: .hidSystemState)
@@ -51,13 +51,13 @@ final class CGEventExecutor: InputExecutor {
         }
     }
 
-    var hasPermission: Bool { AXIsProcessTrusted() }
+    public var hasPermission: Bool { AXIsProcessTrusted() }
 
-    var isDragging: Bool { queue.sync { dragging != nil } }
+    public var isDragging: Bool { queue.sync { dragging != nil } }
 
     /// Prompts for Accessibility once, on an explicit user action only.
     @discardableResult
-    func requestPermission() -> Bool {
+    public func requestPermission() -> Bool {
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
         return AXIsProcessTrustedWithOptions(options)
     }
@@ -68,7 +68,7 @@ final class CGEventExecutor: InputExecutor {
         CGEvent(source: nil)?.location ?? .zero
     }
 
-    func moveCursor(dx: Double, dy: Double) {
+    public func moveCursor(dx: Double, dy: Double) {
         guard dx.isFinite, dy.isFinite else { return }
         queue.async { [weak self] in
             guard let self else { return }
@@ -113,7 +113,7 @@ final class CGEventExecutor: InputExecutor {
         }
     }
 
-    func centerCursorOnActiveDisplay() {
+    public func centerCursorOnActiveDisplay() {
         queue.async { [weak self] in
             guard let self else { return }
             let geometry = DisplayGeometry.current()
@@ -138,7 +138,7 @@ final class CGEventExecutor: InputExecutor {
         }
     }
 
-    func click(button: MouseButton, count: Int) {
+    public func click(button: MouseButton, count: Int) {
         let clicks = min(max(count, 1), 2)
         queue.async { [weak self] in
             guard let self else { return }
@@ -157,7 +157,7 @@ final class CGEventExecutor: InputExecutor {
         }
     }
 
-    func beginDrag(button: MouseButton) {
+    public func beginDrag(button: MouseButton) {
         queue.async { [weak self] in
             guard let self, self.dragging == nil else { return }
             let location = self.currentLocation()
@@ -172,7 +172,7 @@ final class CGEventExecutor: InputExecutor {
         }
     }
 
-    func endDrag(button: MouseButton) {
+    public func endDrag(button: MouseButton) {
         queue.async { [weak self] in self?.endDragLocked() }
     }
 
@@ -200,7 +200,7 @@ final class CGEventExecutor: InputExecutor {
 
     // MARK: - Scroll
 
-    func scroll(dx: Double, dy: Double, unit: ScrollPayload.Unit, isMomentum: Bool) {
+    public func scroll(dx: Double, dy: Double, unit: ScrollPayload.Unit, isMomentum: Bool) {
         guard dx.isFinite, dy.isFinite else { return }
         queue.async { [weak self] in
             guard let self else { return }
@@ -216,7 +216,7 @@ final class CGEventExecutor: InputExecutor {
 
     // MARK: - Keyboard
 
-    func pressKey(_ key: KeyName, modifiers: KeyModifiers, repeatCount: Int) {
+    public func pressKey(_ key: KeyName, modifiers: KeyModifiers, repeatCount: Int) {
         guard let code = KeyMap.virtualKeyCode(for: key) else {
             Log.warn("no keycode for allowlisted key '\(key.rawValue)' — check KeyMap")
             return
@@ -236,7 +236,7 @@ final class CGEventExecutor: InputExecutor {
         }
     }
 
-    func typeText(_ text: String) {
+    public func typeText(_ text: String) {
         guard !text.isEmpty else { return }
         // Chunked because a single event's Unicode string buffer is bounded, and because
         // very long bursts starve the target app's event loop.
@@ -261,7 +261,7 @@ final class CGEventExecutor: InputExecutor {
 
     // MARK: - Media
 
-    func mediaCommand(_ command: MediaCommandName, amount: Double?) {
+    public func mediaCommand(_ command: MediaCommandName, amount: Double?) {
         switch command {
         case .playPause:    MediaKeys.post(.play)
         case .next:         MediaKeys.post(.next)
@@ -296,7 +296,7 @@ final class CGEventExecutor: InputExecutor {
 
     // MARK: - Teardown
 
-    func releaseAll() {
+    public func releaseAll() {
         queue.async { [weak self] in
             guard let self else { return }
             self.endDragLocked()
@@ -315,7 +315,7 @@ final class CGEventExecutor: InputExecutor {
 
     // MARK: - Displays
 
-    func displays() -> [DisplayInfo] {
+    public func displays() -> [DisplayInfo] {
         let geometry = DisplayGeometry.current()
         return geometry.screens.enumerated().map { index, screen in
             DisplayInfo(id: index + 1,
@@ -326,7 +326,7 @@ final class CGEventExecutor: InputExecutor {
         }
     }
 
-    func activeDisplayID() -> Int {
+    public func activeDisplayID() -> Int {
         let geometry = DisplayGeometry.current()
         let location = currentLocation()
         guard let index = geometry.screens.firstIndex(where: { $0.frame.contains(location) }) else { return 1 }

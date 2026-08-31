@@ -5,12 +5,12 @@ import RemoteKit
 
 /// A device the user explicitly chose to remember.
 public struct TrustedDevice: Codable {
-    let deviceId: String
-    let deviceName: String
+    public let deviceId: String
+    public let deviceName: String
     /// Base64 Ed25519 public key. Reconnects are authenticated by signing the server's nonce.
-    let publicKey: String
-    let trustedAt: Date
-    var lastSeenAt: Date
+    public let publicKey: String
+    public let trustedAt: Date
+    public var lastSeenAt: Date
 }
 
 /// The set of devices allowed to reconnect without a human approving it.

@@ -33,11 +33,21 @@ but not built — see `CHECKLIST.md` for the exact line between the two.
 git clone https://github.com/brianlo06/airpoint.git && cd airpoint
 swift build
 
-# Check the Accessibility permission end to end (draws a square with the real cursor)
-./.build/debug/airpointd --selftest
+# The menu-bar app: no terminal needed
+./.build/debug/AirPointApp
+```
 
-# Run it
-./.build/debug/airpointd
+An icon appears in the menu bar. Click it for the QR code, the pairing code, and — if it has
+not been granted yet — a button that raises the Accessibility prompt and explains why it is
+needed. Approving a phone happens in a sheet, and **Disconnect everything** is always one
+click away.
+
+There is also a command-line version, which is the same program with a terminal instead of a
+UI. Useful for debugging, scripting and CI:
+
+```bash
+./.build/debug/airpointd --selftest   # draws a square with the real cursor
+./.build/debug/airpointd              # QR code and approval prompt in the terminal
 ```
 
 The daemon prints a URL, a six-digit pairing code and a scannable QR code. On your phone:
@@ -163,7 +173,10 @@ Sources/RemoteKit/   Platform-agnostic core: protocol, validation, motion maths,
                      project is Swift rather than Node.
 Sources/RemoteServer/  Transport, TLS, pairing and sessions, with no idea what events mean.
                      Published as a library; hosts implement RemoteSessionHandler.
-Sources/airpointd/   The macOS cursor remote: CGEvent, focus detection, CLI, controller.
+Sources/AirPointCore/  The cursor remote: CGEvent, focus detection, controller assets.
+                     A library, so the CLI and the app are one program with two faces.
+Sources/AirPointApp/   SwiftUI MenuBarExtra: QR, approval sheet, panic, trusted devices.
+Sources/airpointd/   The same thing with a terminal instead of a UI.
     Resources/web/   The controller PWA, served over TLS by the daemon itself.
 Tests/               Unit tests for the protocol, motion pipeline and security primitives.
 tools/               probe.mjs, motion-check.mjs, sensor-flow-check.mjs, dev.sh.

@@ -16,7 +16,7 @@ import RemoteKit
 ///
 /// It uses the Accessibility permission the daemon already requires to post events, and can
 /// be turned off entirely with `--no-focus-detection`.
-final class FocusMonitor {
+public final class FocusMonitor {
 
     /// Roles that accept typed text. Web text inputs in Safari and Chrome report
     /// AXTextField or AXTextArea, so this covers browser forms as well as native apps.
@@ -52,11 +52,11 @@ final class FocusMonitor {
     /// Roles seen so far, so an unrecognised one is reported once rather than every poll.
     private var reportedRoles: Set<String> = []
 
-    init(onChange: @escaping (Bool) -> Void) {
+    public init(onChange: @escaping (Bool) -> Void) {
         self.onChange = onChange
     }
 
-    func start() {
+    public func start() {
         queue.async { [weak self] in
             guard let self, self.timer == nil else { return }
             let timer = DispatchSource.makeTimerSource(queue: self.queue)
@@ -67,7 +67,7 @@ final class FocusMonitor {
         }
     }
 
-    func stop() {
+    public func stop() {
         queue.async { [weak self] in
             self?.timer?.cancel()
             self?.timer = nil

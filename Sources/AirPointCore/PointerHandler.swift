@@ -4,10 +4,14 @@ import RemoteServer
 
 /// AirPoint's meaning for the events `RemoteServer` delivers: move the macOS cursor.
 ///
+/// Lives in a library rather than in the daemon so the command-line tool and the menu-bar
+/// app are genuinely the same program with two faces, instead of two implementations that
+/// drift.
+///
 /// Everything specific to being a *cursor remote* lives here. The server below it knows
 /// about TLS, pairing, framing and validation, and nothing about `CGEvent` — which is what
 /// lets a game reuse the same transport with an entirely different handler.
-final class PointerHandler: RemoteSessionHandler {
+public final class PointerHandler: RemoteSessionHandler {
 
     private let executor: InputExecutor
     private let dryRun: Bool
@@ -16,7 +20,7 @@ final class PointerHandler: RemoteSessionHandler {
     private let lock = NSLock()
     private var focusMonitors: [UUID: FocusMonitor] = [:]
 
-    init(executor: InputExecutor, dryRun: Bool, focusDetection: Bool) {
+    public init(executor: InputExecutor, dryRun: Bool, focusDetection: Bool) {
         self.executor = executor
         self.dryRun = dryRun
         self.focusDetection = focusDetection
@@ -24,23 +28,23 @@ final class PointerHandler: RemoteSessionHandler {
 
     // MARK: - Capabilities
 
-    func features(for session: RemoteSession) -> [String] {
+    public func features(for session: RemoteSession) -> [String] {
         var features = ["pointer", "scroll", "keyboard", "media", "drag"]
         if dryRun { features.append("dry-run") }
         return features
     }
 
-    func displays(for session: RemoteSession) -> [DisplayInfo] {
+    public func displays(for session: RemoteSession) -> [DisplayInfo] {
         executor.displays()
     }
 
-    func isReady(for session: RemoteSession) -> Bool {
+    public func isReady(for session: RemoteSession) -> Bool {
         // In a dry run the events are recorded rather than posted, so the Accessibility
         // permission is irrelevant and the session should behave as though it were granted.
         dryRun || executor.hasPermission
     }
 
-    func permissions(for session: RemoteSession) -> [String: Bool] {
+    public func permissions(for session: RemoteSession) -> [String: Bool] {
         // `accessibility` is part of the published protocol and the controller reads it by
         // name to explain why the cursor is not moving.
         ["accessibility": dryRun || executor.hasPermission]
@@ -48,7 +52,7 @@ final class PointerHandler: RemoteSessionHandler {
 
     // MARK: - Lifecycle
 
-    func sessionDidBegin(_ session: RemoteSession) {
+    public func sessionDidBegin(_ session: RemoteSession) {
         if !executor.hasPermission && !dryRun {
             Log.warn("connected, but Accessibility permission is missing — input will not work")
         }
@@ -68,7 +72,7 @@ final class PointerHandler: RemoteSessionHandler {
         Log.debug("focus detection started")
     }
 
-    func sessionDidEnd(_ session: RemoteSession) {
+    public func sessionDidEnd(_ session: RemoteSession) {
         lock.lock()
         let monitor = focusMonitors.removeValue(forKey: session.id)
         lock.unlock()
@@ -79,7 +83,7 @@ final class PointerHandler: RemoteSessionHandler {
 
     // MARK: - Events
 
-    func handle(_ event: ClientEvent, from session: RemoteSession) {
+    public func handle(_ event: ClientEvent, from session: RemoteSession) {
         switch event {
         case .pointerMove(let move):
             executor.moveCursor(dx: move.dx, dy: move.dy)
@@ -117,5 +121,12 @@ final class PointerHandler: RemoteSessionHandler {
             // Handled by the session layer; nothing for a cursor to do.
             break
         }
+    }
+}
+
+public extension StaticContent {
+    /// The AirPoint controller, from this module's bundle.
+    static var airPointController: StaticContent {
+        .webController(bundle: Bundle.module)
     }
 }
