@@ -44,7 +44,7 @@ public enum NetworkInterfaces {
                 name: name,
                 address: address,
                 isIPv4: isIPv4,
-                isPrivate: isPrivateAddress(address, isIPv4: isIPv4),
+                isPrivate: isPrivateAddress(address, isIPv4: isIPv4, interface: name),
                 isLoopback: flags & IFF_LOOPBACK != 0
             ))
         }
@@ -65,7 +65,30 @@ public enum NetworkInterfaces {
             .map(\.address)
     }
 
-    public static func isPrivateAddress(_ address: String, isIPv4: Bool) -> Bool {
+    /// Whether an address is one this software is willing to bind.
+    ///
+    /// `interface` matters for one case only: 100.64.0.0/10 is carrier-grade NAT space, used
+    /// both by mesh VPNs like Tailscale and by ISPs for real carrier NAT. On a `utun`
+    /// tunnel it is a VPN and binding it is exactly how remote play should work — the VPN
+    /// does the authentication, and no port is exposed to anybody. On `en0` it is the
+    /// carrier's network, and binding it would expose input control to strangers. Same
+    /// address range, opposite meaning, so the interface has to be part of the answer.
+    public static func isPrivateAddress(_ address: String, isIPv4: Bool,
+                                        interface: String? = nil) -> Bool {
+        if isIPv4, isCarrierGradeNAT(address) {
+            return interface.map { $0.hasPrefix("utun") || $0.hasPrefix("tailscale") } ?? false
+        }
+        return isConventionallyPrivate(address, isIPv4: isIPv4)
+    }
+
+    /// 100.64.0.0/10.
+    public static func isCarrierGradeNAT(_ address: String) -> Bool {
+        let parts = address.split(separator: ".").compactMap { UInt8($0) }
+        guard parts.count == 4, parts[0] == 100 else { return false }
+        return (64...127).contains(parts[1])
+    }
+
+    private static func isConventionallyPrivate(_ address: String, isIPv4: Bool) -> Bool {
         if !isIPv4 {
             let lower = address.lowercased()
             // Unique-local (fc00::/7) and link-local (fe80::/10), plus loopback.

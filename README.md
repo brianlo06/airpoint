@@ -191,6 +191,13 @@ docs/                Product, architecture, protocol, security, motion, plan and
 Both devices must be on the same Wi-Fi network — a Guest network is usually isolated from
 the main one and will not work. The daemon prints every address it is reachable on.
 
+**Using it from another network.**
+There is no relay and no port forwarding, deliberately. Put both devices on a mesh VPN
+(Tailscale, WireGuard) and the remote one looks like it is on the LAN — the VPN does the
+authentication and nothing is exposed to the internet. AirPoint will bind a Tailscale
+address on a tunnel interface, and refuses the same address range on a physical one, where
+it would mean the ISP's carrier NAT rather than your overlay.
+
 **Safari shows a certificate warning.**
 Expected; see step 2 above. Safari can show an interstitial for an `https://` page but
 *not* for a `wss://` connection, which is why the page and the WebSocket share one port —

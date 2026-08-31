@@ -17,6 +17,7 @@ despite being "just a remote".
 | T7 | Local malware on the Mac | Reads app files | Trusted-device public keys and the TLS private key live in the **Keychain** (`WhenUnlockedThisDeviceOnly`), not in a plist. Note honestly: malware already running as the user has bigger levers than this. |
 | T8 | Someone who picks up the unlocked, paired phone | Full control while in range | Out of scope for software; mitigated by the panic disconnect on the Mac and the session idle timeout. Documented. |
 | T9 | Malicious/buggy paired client | Sends hostile payloads | Every field validated against the schema in `RemoteKit`; keys come from a fixed **allowlist enum**, never raw keycodes; text length-capped and control-character-stripped; per-type token buckets; 8 KiB frame cap. |
+| T10a | Someone who photographs the join code | Can attempt to pair within the code's lifetime | Only from **the same network** — the address in the code is a private one and is not routable from anywhere else. They then appear as an approval prompt on the host. For a host using multi-device codes (a game) this is the accepted trade; for the remote, the code is single-use and burned by the first device. |
 | T10 | Exposure beyond the LAN | Router UPnP/port-forward, VPN | Listener binds only to interfaces with private addresses. **No UPnP, no NAT-PMP, no relay, no cloud.** Refuses to start if asked to bind a public address without an explicit `--i-know-what-im-doing` flag. |
 
 ## Pairing flow (MVP)
@@ -46,6 +47,23 @@ no approval dialog, but a **visible** menu-bar state change and a notification.
 
 The typed-code path is identical except the QR's SPKI pin is absent, so T3 is not covered. The UI
 says so: *"Scanning the QR code is more secure than typing the code."*
+
+### Playing or controlling from another network
+
+There is no relay, no port forwarding and no cloud, and there will not be. What works
+instead is a **mesh VPN** — Tailscale, WireGuard, anything that gives both machines an
+address on a private overlay. The remote device then looks like it is on the LAN, the VPN
+does the authentication, and nothing is exposed to the internet.
+
+That needs one thing from this software: Tailscale hands out addresses in 100.64.0.0/10,
+which is carrier-grade NAT space. Binding it is only safe on a tunnel — on a physical
+interface the same range means the *ISP's* carrier NAT, and binding that would expose input
+control to strangers. So `isPrivateAddress` accepts 100.64.0.0/10 on a `utun`/`tailscale`
+interface and refuses it on `en0`. Same addresses, opposite meaning, and the interface is
+what distinguishes them.
+
+Everything else still applies over the VPN: pairing, human approval, TLS, the `Origin` and
+`Host` allowlists.
 
 ### Multi-device codes
 

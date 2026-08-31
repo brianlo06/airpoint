@@ -1,5 +1,6 @@
 import XCTest
 @testable import RemoteKit
+import RemoteServer
 
 final class RateLimiterTests: XCTestCase {
 
@@ -172,5 +173,51 @@ final class PairingTests: XCTestCase {
     func testNonceIsRequestedLength() {
         XCTAssertEqual(Nonce.generate(byteCount: 32).count, 32)
         XCTAssertNotEqual(Nonce.generate(), Nonce.generate())
+    }
+}
+
+/// Which addresses this software is willing to bind.
+///
+/// The interesting case is 100.64.0.0/10: mesh VPNs like Tailscale use it, and so do ISPs
+/// for real carrier NAT. On a tunnel it is a private overlay and binding it is how remote
+/// play should work; on a physical interface it is the carrier's network and binding it
+/// would expose input control to strangers. Same range, opposite meaning.
+final class BindPolicyTests: XCTestCase {
+
+    func testConventionalPrivateRangesAreAllowed() {
+        for address in ["10.0.0.25", "192.168.1.4", "172.16.5.9", "172.31.255.1", "127.0.0.1"] {
+            XCTAssertTrue(NetworkInterfaces.isPrivateAddress(address, isIPv4: true, interface: "en0"),
+                          "\(address) should be bindable")
+        }
+    }
+
+    func testPublicAddressesAreRefused() {
+        for address in ["8.8.8.8", "1.1.1.1", "172.32.0.1", "93.184.216.34"] {
+            XCTAssertFalse(NetworkInterfaces.isPrivateAddress(address, isIPv4: true, interface: "en0"),
+                           "\(address) must not be bindable")
+        }
+    }
+
+    func testCarrierNatIsRefusedOnAPhysicalInterface() {
+        XCTAssertTrue(NetworkInterfaces.isCarrierGradeNAT("100.64.0.1"))
+        XCTAssertTrue(NetworkInterfaces.isCarrierGradeNAT("100.127.255.254"))
+        XCTAssertFalse(NetworkInterfaces.isPrivateAddress("100.100.5.7", isIPv4: true, interface: "en0"),
+                       "an ISP's carrier NAT address must not be bindable")
+    }
+
+    func testCarrierNatIsAllowedOnAVpnTunnel() {
+        XCTAssertTrue(NetworkInterfaces.isPrivateAddress("100.100.5.7", isIPv4: true, interface: "utun4"),
+                      "a mesh VPN address is how remote play works")
+        XCTAssertTrue(NetworkInterfaces.isPrivateAddress("100.64.9.9", isIPv4: true, interface: "tailscale0"))
+    }
+
+    func testAddressesOutsideTheCarrierRangeAreUnaffectedByTheInterface() {
+        XCTAssertFalse(NetworkInterfaces.isPrivateAddress("8.8.8.8", isIPv4: true, interface: "utun4"),
+                       "a tunnel must not launder a public address")
+        XCTAssertTrue(NetworkInterfaces.isPrivateAddress("192.168.0.2", isIPv4: true, interface: "utun4"))
+    }
+
+    func testUnknownInterfaceDefaultsToRefusingCarrierNat() {
+        XCTAssertFalse(NetworkInterfaces.isPrivateAddress("100.100.5.7", isIPv4: true))
     }
 }
