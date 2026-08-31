@@ -237,6 +237,14 @@ session. `docs/04-security.md` has the full threat model; the short version:
 
 ---
 
+## Built on this
+
+[**Reticle**](https://github.com/brianlo06/reticle) — a light-gun shooting gallery for a TV,
+where the phone is the gun. It depends on this package over SwiftPM and adds a
+`RemoteSessionHandler` of about a hundred lines; the transport, pairing, TLS and motion
+pipeline are all reused unchanged. It needs no OS permission at all, because a game draws
+its own reticle rather than moving the system cursor.
+
 ## Building something else on this
 
 The parts worth reusing are deliberately separated from the remote-control product:
