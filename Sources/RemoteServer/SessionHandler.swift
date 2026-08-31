@@ -66,4 +66,7 @@ public protocol RemoteSession: AnyObject {
     /// Tells the client whether the host's focused control accepts typed text, so the phone
     /// can offer its keyboard. Hosts with no such notion simply never call it.
     func send(focus: FocusPayload)
+    /// Asks the client for a short haptic or audible cue. Best-effort and fire-and-forget:
+    /// a client that cannot vibrate simply does not.
+    func send(cue: CuePayload)
 }

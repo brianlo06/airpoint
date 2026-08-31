@@ -190,7 +190,7 @@ public struct ClientMessage: Decodable, Sendable {
 // MARK: - Server → client
 
 public enum ServerEventType: String, Sendable {
-    case challenge, welcome, pairPending = "pair_pending", status, pong, error, focus
+    case challenge, welcome, pairPending = "pair_pending", status, pong, error, focus, cue
 }
 
 /// Server frames are encoded through one generic envelope so the version, sequence and
@@ -271,6 +271,47 @@ public struct StatusPayload: Encodable, Sendable {
 public struct FocusPayload: Encodable, Sendable {
     public let textInput: Bool
     public init(textInput: Bool) { self.textInput = textInput }
+}
+
+/// A short feedback cue for the client to render: a haptic pulse, a tone, a flash.
+///
+/// Deliberately about *feel*, not about meaning. The host says "that succeeded, firmly";
+/// the phone decides what a firm success feels like on that hardware. Encoding game
+/// concepts here would have made the event useless to anything but a game, and the whole
+/// point of this protocol is that the host owns meaning and the client owns presentation.
+///
+/// Added without a protocol version bump: unknown server event types are already ignored by
+/// clients, so an older controller simply feels nothing.
+public struct CuePayload: Encodable, Sendable {
+    public enum Kind: String, Encodable, Sendable {
+        /// Something the user did worked.
+        case success
+        /// Something the user did did not work.
+        case failure
+        /// Something needs attention but is not a failure.
+        case warning
+        /// A thing is beginning.
+        case start
+        /// A thing has ended.
+        case finish
+        /// One beat of a countdown or metronome.
+        case tick
+        /// Neutral acknowledgement.
+        case info
+    }
+
+    public let kind: Kind
+    /// 0...1. How emphatic the feedback should be — a grazing hit versus a five-streak.
+    public let intensity: Double
+    /// Optional short label the client may show. Capped, because it lands on a phone screen
+    /// that the user is deliberately not looking at.
+    public let text: String?
+
+    public init(kind: Kind, intensity: Double = 0.6, text: String? = nil) {
+        self.kind = kind
+        self.intensity = min(max(intensity.isFinite ? intensity : 0.6, 0), 1)
+        self.text = text.map { String($0.prefix(24)) }
+    }
 }
 
 public struct PongPayload: Encodable, Sendable {

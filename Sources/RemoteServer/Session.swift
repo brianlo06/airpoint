@@ -549,6 +549,15 @@ final class ClientConnection: RemoteSession {
         }
     }
 
+    func send(cue: CuePayload) {
+        queue.async {
+            guard self.phase == .authenticated else { return }
+            // Dropped rather than queued under backpressure: a cue that arrives late is
+            // worse than no cue, because it lands against the wrong moment.
+            self.send(.cue, cue)
+        }
+    }
+
     private func sendRaw(_ data: Data) {
         connection.send(content: data, completion: .contentProcessed { error in
             if let error {
