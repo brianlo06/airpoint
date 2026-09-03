@@ -120,6 +120,11 @@ public final class PointerHandler: RemoteSessionHandler {
         case .calibration, .hello, .ping, .disconnect:
             // Handled by the session layer; nothing for a cursor to do.
             break
+
+        case .padState:
+            // A gamepad has no meaning for a cursor. Ignored rather than refused: the
+            // protocol carries it for hosts that are games, and this one is not.
+            break
         }
     }
 }

@@ -126,6 +126,31 @@ final class ProtocolTests: XCTestCase {
         XCTAssertEqual(try KeyModifiers.parse(["option"]), .option)
     }
 
+    // MARK: Validation — the pad
+
+    func testPadStateDecodesHeldButtons() throws {
+        let m = try decode(#"{"v":1,"t":"pad_state","d":{"held":["up","a"]}}"#).validated()
+        XCTAssertEqual(m.event, .padState(PadStatePayload(held: [.up, .a])))
+    }
+
+    func testPadStateWithNoPayloadIsAnEmptyHand() throws {
+        let m = try decode(#"{"v":1,"t":"pad_state"}"#).validated()
+        XCTAssertEqual(m.event, .padState(PadStatePayload(held: [])))
+    }
+
+    func testPadStateRejectsUnknownButton() {
+        XCTAssertThrowsError(try decode(#"{"v":1,"t":"pad_state","d":{"held":["fire"]}}"#)) { error in
+            XCTAssertEqual((error as? ProtocolError)?.code, .invalidPayload)
+        }
+    }
+
+    func testPadStateFoldsDuplicatesAndCapsLength() throws {
+        let m = try decode(#"{"v":1,"t":"pad_state","d":{"held":["a","a","up"]}}"#).validated()
+        XCTAssertEqual(m.event, .padState(PadStatePayload(held: [.a, .up])))
+        let many = Array(repeating: "\"a\"", count: Limits.maxPadButtons + 1).joined(separator: ",")
+        XCTAssertThrowsError(try decode(#"{"v":1,"t":"pad_state","d":{"held":[\#(many)]}}"#).validated())
+    }
+
     // MARK: Validation — text
 
     func testTextInputStripsControlCharacters() throws {

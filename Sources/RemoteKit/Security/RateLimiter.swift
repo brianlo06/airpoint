@@ -50,6 +50,10 @@ public final class SessionRateLimiter {
             .dragStart:    TokenBucket(capacity: 5,  refillPerSecond: 10, now: now),
             .dragEnd:      TokenBucket(capacity: 5,  refillPerSecond: 10, now: now),
             .keyPress:     TokenBucket(capacity: 20, refillPerSecond: 40, now: now),
+            // A thumb sliding around a d-pad changes state perhaps ten times a second, and
+            // a client re-sends a held state a few times a second so the host can tell a
+            // long press from a dead phone. Generous, but well under the motion budget.
+            .padState:     TokenBucket(capacity: 30, refillPerSecond: 60, now: now),
             .textInput:    TokenBucket(capacity: 10, refillPerSecond: 20, now: now),
             .mediaCommand: TokenBucket(capacity: 10, refillPerSecond: 20, now: now),
             .recenter:     TokenBucket(capacity: 3,  refillPerSecond: 5,  now: now),

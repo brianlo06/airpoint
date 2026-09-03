@@ -76,6 +76,18 @@ Return/Escape/Tab/Space/Backspace/Delete/Home/End/PageUp/PageDown, F1–F12, pun
 `BrightnessUp/Down`). Arbitrary virtual keycodes are **never** accepted from the wire.
 `mods` ⊆ {`cmd`,`shift`,`alt`,`ctrl`,`fn`}. `repeat`: 1–10. Rate limit: 40/s.
 
+### `pad_state`
+```json
+{"v":1,"t":"pad_state","seq":1047,"ts":1756500002100,"d":{"held":["up","a"]}}
+```
+The phone held sideways as a gamepad: **every button currently down**, not a press or a
+release. `held` ⊆ {`up`,`down`,`left`,`right`,`a`,`b`,`x`,`y`,`l`,`r`,`start`,`select`}, at
+most 12 entries, duplicates folded; a missing `d` is an empty hand. Whole state because a lost
+release is the one message that must not go missing — each frame supersedes the last, and a
+host should treat a client that stops sending while holding something as having let go.
+Clients re-send a non-empty state a few times a second for exactly that reason. Rate limit:
+60/s. AirPoint itself ignores it; it exists for hosts that are games.
+
 ### `text_input`
 ```json
 {"v":1,"t":"text_input","seq":1047,"ts":1756500003000,"d":{"text":"the bear season 3"}}

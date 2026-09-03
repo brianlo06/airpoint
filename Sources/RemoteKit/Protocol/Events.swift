@@ -182,6 +182,55 @@ public struct KeyPressPayload: Codable, Equatable, Sendable, ValidatablePayload 
     }
 }
 
+/// One button on a phone held sideways as a gamepad.
+///
+/// Named after the pad rather than after what a host does with them, for the same reason
+/// `left_click` is not called `fire`: the wire describes what the user did, and the meaning
+/// belongs to whichever host receives it.
+public enum PadButton: String, Codable, CaseIterable, Sendable {
+    case up, down, left, right
+    case a, b, x, y
+    /// Shoulder buttons.
+    case l, r
+    case start, select
+}
+
+/// Every pad button currently held. The whole state, every time.
+///
+/// Whole state rather than separate press and release events, because a release is the one
+/// message that must not be lost: a `key_press` that goes missing costs a keystroke, a
+/// missed "up" leaves a tank driving into a wall until the player notices. Sending the full
+/// set means each frame supersedes the last, a dropped one is corrected by the next, and a
+/// client that goes quiet — backgrounded, locked, dropped — can be treated by the host as
+/// having let go of everything.
+public struct PadStatePayload: Codable, Equatable, Sendable, ValidatablePayload {
+    public var held: [PadButton]
+
+    public init(held: [PadButton] = []) { self.held = held }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let raw = try c.decodeIfPresent([String].self, forKey: .held) ?? []
+        held = try raw.map { name in
+            guard let button = PadButton(rawValue: name) else {
+                throw ProtocolError.invalid("pad button '\(name)' is not in the allowlist")
+            }
+            return button
+        }
+    }
+
+    public func validated() throws -> PadStatePayload {
+        // A phone has ten fingers' worth of buttons at most; a longer list is not a bigger
+        // hand, it is a client repeating itself. Duplicates are folded rather than refused,
+        // since they change nothing about which buttons are down.
+        guard held.count <= Limits.maxPadButtons else {
+            throw ProtocolError.invalid("held lists more than \(Limits.maxPadButtons) buttons")
+        }
+        var seen = Set<PadButton>()
+        return PadStatePayload(held: held.filter { seen.insert($0).inserted })
+    }
+}
+
 public struct TextInputPayload: Codable, Equatable, Sendable, ValidatablePayload {
     public var text: String
     public init(text: String) { self.text = text }

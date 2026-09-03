@@ -15,6 +15,8 @@ public enum Limits {
     public static let maxScrollDelta: Double = 2000
     public static let maxClicks = 2
     public static let maxKeyRepeat = 10
+    /// Every pad button at once. More than this is a client repeating itself.
+    public static let maxPadButtons = 12
     public static let maxTextLength = 1024
     public static let maxSeekAmount: Double = 600
     public static let minSeekAmount: Double = 1

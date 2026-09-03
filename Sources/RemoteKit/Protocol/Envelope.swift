@@ -9,6 +9,7 @@ public enum ClientEventType: String, Codable, CaseIterable, Sendable {
     case dragEnd = "drag_end"
     case scroll
     case keyPress = "key_press"
+    case padState = "pad_state"
     case textInput = "text_input"
     case mediaCommand = "media_command"
     case recenter
@@ -26,6 +27,7 @@ public enum ClientEvent: Equatable, Sendable {
     case dragEnd(DragPayload)
     case scroll(ScrollPayload)
     case keyPress(KeyPressPayload)
+    case padState(PadStatePayload)
     case textInput(TextInputPayload)
     case mediaCommand(MediaCommandPayload)
     case recenter(RecenterPayload)
@@ -43,6 +45,7 @@ public enum ClientEvent: Equatable, Sendable {
         case .dragEnd: return .dragEnd
         case .scroll: return .scroll
         case .keyPress: return .keyPress
+        case .padState: return .padState
         case .textInput: return .textInput
         case .mediaCommand: return .mediaCommand
         case .recenter: return .recenter
@@ -124,6 +127,10 @@ public struct ClientMessage: Decodable, Sendable {
         case .dragEnd:       event = .dragEnd(try optionalPayload(DragPayload.self, default: DragPayload()))
         case .scroll:        event = .scroll(try payload(ScrollPayload.self))
         case .keyPress:      event = .keyPress(try payload(KeyPressPayload.self))
+        // An absent payload is an empty hand, which is a state worth being able to say. A
+        // present one is decoded strictly: the lenient path would turn a misspelt button
+        // into "nothing held", which is a silent way to lose a whole hand.
+        case .padState:      event = .padState(c.contains(.d) ? try payload(PadStatePayload.self) : PadStatePayload())
         case .textInput:     event = .textInput(try payload(TextInputPayload.self))
         case .mediaCommand:  event = .mediaCommand(try payload(MediaCommandPayload.self))
         case .recenter:      event = .recenter(try optionalPayload(RecenterPayload.self, default: RecenterPayload()))
@@ -145,6 +152,7 @@ public struct ClientMessage: Decodable, Sendable {
         case .dragEnd(let p):      e = .dragEnd(try p.validated())
         case .scroll(let p):       e = .scroll(try p.validated())
         case .keyPress(let p):     e = .keyPress(try p.validated())
+        case .padState(let p):     e = .padState(try p.validated())
         case .textInput(let p):    e = .textInput(try p.validated())
         case .mediaCommand(let p): e = .mediaCommand(try p.validated())
         case .recenter(let p):     e = .recenter(try p.validated())
