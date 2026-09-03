@@ -11,8 +11,9 @@ Spotify Web and everything else without extensions, injected scripts or per-site
 integrations. Nothing here touches DRM, authentication or platform security — it provides
 ordinary input to your own machine, exactly as a Bluetooth mouse would.
 
-**Status:** Phases 1–3 are implemented and verified end to end. Phase 4 onward is designed
-but not built — see `CHECKLIST.md` for the exact line between the two.
+**Status:** Phases 1–3 are implemented and verified end to end. Phase 4 — the menu-bar
+app — is built but has not yet had a phone driven through its UI. Phase 5 onward is
+designed but not built. See `CHECKLIST.md` for the exact line between the three.
 
 ---
 
@@ -40,7 +41,9 @@ swift build
 An icon appears in the menu bar. Click it for the QR code, the pairing code, and — if it has
 not been granted yet — a button that raises the Accessibility prompt and explains why it is
 needed. Approving a phone happens in a sheet, and **Disconnect everything** is always one
-click away.
+click away — or **⌃⌥⌘⎋ from anywhere**, with any app focused, while the server is running.
+A Troubleshooting section shows the firewall state and the last warnings, since a menu-bar
+app has no terminal for them to land in.
 
 There is also a command-line version, which is the same program with a terminal instead of a
 UI. Useful for debugging, scripting and CI:

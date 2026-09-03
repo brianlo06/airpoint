@@ -23,6 +23,12 @@ public enum Log {
 
     nonisolated(unsafe) public static var minimumLevel: Level = .info
 
+    /// An optional observer of every line, called before the `minimumLevel` filter so a
+    /// UI can keep warnings on screen even when stderr logging is turned down. Lines
+    /// arrive already redacted — this is a second reader of the one logging path, not a
+    /// second path around it. Set once at startup, before any concurrent logging.
+    nonisolated(unsafe) public static var tap: ((Level, String) -> Void)?
+
     private static let lock = NSLock()
     private static let formatter: DateFormatter = {
         let f = DateFormatter()
@@ -36,6 +42,7 @@ public enum Log {
     public static func error(_ message: @autoclosure () -> String) { emit(.error, message()) }
 
     private static func emit(_ level: Level, _ message: String) {
+        tap?(level, message)
         guard level >= minimumLevel else { return }
         let line = "\(formatter.string(from: Date())) \(level.label) \(message)\n"
         lock.lock()

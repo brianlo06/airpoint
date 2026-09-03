@@ -1,6 +1,6 @@
 # AirPoint — running checklist
 
-Last updated: 2026-08-29.
+Last updated: 2026-09-03.
 Anything marked **done** has been built *and* exercised, either by `swift test` or by
 `tools/probe.mjs` against a live daemon. Nothing is ticked on the strength of it compiling.
 
@@ -91,8 +91,15 @@ existing, which is the argument for doing the extraction rather than planning it
       effect without a relaunch
 - [x] Trusted-device list with per-device revoke and "forget all"
 - [x] `AirPointCore` extracted so the CLI and the app are one program, not two
-- [ ] Global hotkey for panic disconnect
-- [ ] Troubleshooting panel (firewall state, last errors)
+- [x] Global hotkey for panic disconnect: ⌃⌥⌘⎋ via Carbon's `RegisterEventHotKey`, which
+      fires with any app focused and needs no event tap or extra permission. Registered
+      only while the server runs, and taught on the panel next to the panic button.
+      *Caveat: the wiring compiles and the panic path it calls is exercised, but no human
+      has pressed the combination yet.*
+- [x] Troubleshooting panel: application-firewall state (probed via `socketfilterfw`,
+      refreshed when the panel is opened) and the last warnings/errors, captured by a
+      `LogBuffer` tap on the one logging path so redaction still applies. The parser and
+      the buffer are unit-tested; the panel itself has only been looked at.
 - [ ] Signing and notarisation, and `--keychain` once there is a stable code identity
 - [ ] **The app has not been driven by a phone yet.** It starts, serves the controller,
       enforces the Host allowlist and routes a pairing request to the sheet, but no device

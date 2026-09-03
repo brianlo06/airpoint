@@ -10,6 +10,7 @@ import RemoteServer
 /// thing on screen, and the panic control is always reachable.
 struct MenuView: View {
     @ObservedObject var model: AppModel
+    @State private var showTroubleshooting = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -26,6 +27,8 @@ struct MenuView: View {
                     .buttonStyle(.borderedProminent)
             }
 
+            Divider()
+            troubleshooting
             Divider()
             footer
         }
@@ -151,6 +154,12 @@ struct MenuView: View {
             .buttonStyle(.borderedProminent)
             .tint(.red)
 
+            // The shortcut is global, and this is the one place a person looks when they
+            // care about disconnecting — so it is taught here, not in a preferences pane.
+            Text("Works from anywhere as \(PanicHotKey.displayString) while AirPoint is running.")
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+
             if !model.trustedDevices.isEmpty {
                 Divider()
                 Text("Remembered devices")
@@ -168,6 +177,88 @@ struct MenuView: View {
             }
         }
     }
+
+    // The two things a stuck user cannot see from here: a firewall silently eating the
+    // connection, and warnings that went to a stderr no window shows. Collapsed by
+    // default because on a healthy day it is noise.
+    private var troubleshooting: some View {
+        DisclosureGroup(isExpanded: $showTroubleshooting) {
+            VStack(alignment: .leading, spacing: 6) {
+                firewallRow
+                issueList
+            }
+            .padding(.top, 6)
+        } label: {
+            Text("Troubleshooting")
+                .font(.system(size: 11, weight: .semibold))
+        }
+        .onChange(of: showTroubleshooting) { expanded in
+            // Probed on open rather than polled: the firewall changes when a human flips
+            // it in System Settings, and this is the moment the answer is wanted.
+            if expanded { model.refreshFirewall() }
+        }
+    }
+
+    private var firewallRow: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(firewallText)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if firewallNeedsAttention {
+                Button("Open Firewall Settings") {
+                    NSWorkspace.shared.open(URL(string:
+                        "x-apple.systempreferences:com.apple.preference.security?Firewall")!)
+                }
+                .controlSize(.small)
+            }
+        }
+    }
+
+    private var firewallNeedsAttention: Bool {
+        model.firewall == .on || model.firewall == .blockingAll
+    }
+
+    private var firewallText: String {
+        switch model.firewall {
+        case .off:
+            return "Firewall: off — not blocking AirPoint."
+        case .on:
+            return "Firewall: on. If a phone cannot connect, allow AirPointApp "
+                 + "under the firewall's options."
+        case .blockingAll:
+            return "Firewall: blocking all incoming connections. No phone can connect "
+                 + "until this is relaxed."
+        case .unknown:
+            return "Firewall: state could not be read."
+        }
+    }
+
+    private var issueList: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            if model.recentIssues.isEmpty {
+                Text("No recent warnings.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(Array(model.recentIssues.prefix(5).enumerated()),
+                        id: \.offset) { _, issue in
+                    Text("\(Self.timeFormatter.string(from: issue.date))  \(issue.message)")
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(issue.level == .error ? AnyShapeStyle(Color.red)
+                                                               : AnyShapeStyle(.secondary))
+                        .lineLimit(3)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+
+    private static let timeFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm:ss"
+        return f
+    }()
 
     private var footer: some View {
         HStack {

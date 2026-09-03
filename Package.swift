@@ -56,7 +56,7 @@ let package = Package(
         ),
         .testTarget(
             name: "RemoteKitTests",
-            dependencies: ["RemoteKit", "RemoteServer"],
+            dependencies: ["RemoteKit", "RemoteServer", "AirPointCore"],
             path: "Tests/RemoteKitTests",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),

@@ -34,6 +34,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var addresses: [String] = []
     @Published private(set) var trustedDevices: [TrustedDevice] = []
     @Published private(set) var hasAccessibility = false
+    @Published private(set) var firewall: FirewallState = .unknown
+    @Published private(set) var recentIssues: [LogBuffer.Entry] = []
     @Published var pendingRequest: PairingRequest?
 
     /// A device waiting on a human. Kept in the model rather than passed to a window, so the
@@ -57,6 +59,12 @@ final class AppModel: ObservableObject {
     private var certificateFingerprint = ""
     private var approver: UIApprover?
     private var ticker: Timer?
+    private var panicHotKey: PanicHotKey?
+    /// Warnings and errors, captured for the troubleshooting panel. The buffer taps the
+    /// one logging path rather than adding a second, so redaction still applies.
+    private let issueLog = LogBuffer(capacity: 50, keeping: .warn)
+
+    private static let port: UInt16 = 8443
 
     private let stateDirectory: URL = {
         let base = FileManager.default.urls(for: .applicationSupportDirectory,
@@ -66,6 +74,7 @@ final class AppModel: ObservableObject {
     }()
 
     init() {
+        issueLog.installAsTap()
         refreshPermission()
         // Launching is the user saying they want this running. Making them click Start as
         // well would be a step that exists only because the code was easier to write that
@@ -109,7 +118,7 @@ final class AppModel: ObservableObject {
             let handler = PointerHandler(executor: executor, dryRun: false, focusDetection: true)
 
             let config = ServerConfig(
-                port: 8443,
+                port: Self.port,
                 stateDirectory: stateDirectory,
                 serviceName: "AirPoint on \(ProcessInfo.processInfo.hostName)",
                 serviceType: "_airpoint._tcp",
@@ -131,15 +140,19 @@ final class AppModel: ObservableObject {
             self.addresses = subjectNames.filter { $0 != "localhost" && $0 != "127.0.0.1" }
 
             certificateFingerprint = identity.certificateFingerprint
-            let secret = pairing.currentSecret()
-            pairingCode = secret.displayCode
-            pairingURL = secret.pairingURL(host: subjectNames.first ?? "127.0.0.1",
-                                           port: config.port,
-                                           fingerprint: certificateFingerprint)
+            show(pairing.currentSecret())
             status = .listening
             refreshTrustedDevices()
+            refreshFirewall()
             startTicking()
+            // The panic path must outlive a hostile or broken session, so it is global:
+            // ⌃⌥⌘⎋ works with any app focused. Held only while there is a server whose
+            // sessions it could kill.
+            panicHotKey = PanicHotKey { [weak self] in self?.panic() }
         } catch {
+            // Into the log as well as onto the panel, so the failure is still visible in
+            // the troubleshooting section after the user clicks past it.
+            Log.error("start failed: \(String(describing: error))")
             status = .failed(String(describing: error))
         }
     }
@@ -151,6 +164,7 @@ final class AppModel: ObservableObject {
         // will never come.
         pendingRequest?.decide(.deny)
         pendingRequest = nil
+        panicHotKey = nil
         server?.stop()
         server = nil
         pairing = nil
@@ -168,13 +182,19 @@ final class AppModel: ObservableObject {
     }
 
     func newPairingCode() {
-        guard let pairing, let server else { return }
-        let secret = pairing.rotateSecret()
+        guard let pairing else { return }
+        show(pairing.rotateSecret())
+        codeSecondsRemaining = pairing.remainingCodeSeconds()
+    }
+
+    /// The one place a code becomes what is on screen. The URL must always be rebuilt
+    /// alongside the code and always with the certificate pin — building it anywhere
+    /// else is how a QR scan silently downgrades to the unpinned typed-code path.
+    private func show(_ secret: PairingSecret) {
         pairingCode = secret.displayCode
-        pairingURL = secret.pairingURL(host: server.subjectNames.first ?? "127.0.0.1",
-                                       port: 8443,
+        pairingURL = secret.pairingURL(host: server?.subjectNames.first ?? "127.0.0.1",
+                                       port: Self.port,
                                        fingerprint: certificateFingerprint)
-        codeSecondsRemaining = secret.remainingSeconds()
     }
 
     // MARK: - Permission
@@ -232,6 +252,7 @@ final class AppModel: ObservableObject {
     private func refreshStatus() {
         guard let server, status.isRunning else { return }
         refreshPermission()
+        recentIssues = issueLog.recent
         codeSecondsRemaining = pairing?.remainingCodeSeconds() ?? 0
         if let name = server.connectedDeviceNames.first {
             status = .connected(name)
@@ -239,10 +260,20 @@ final class AppModel: ObservableObject {
             status = .listening
             // A consumed or expired code is useless on screen; show the live one.
             if let secret = pairing?.currentSecret(), secret.displayCode != pairingCode {
-                pairingCode = secret.displayCode
-                pairingURL = secret.pairingURL(host: server.subjectNames.first ?? "127.0.0.1",
-                                               port: 8443, fingerprint: certificateFingerprint)
+                show(secret)
             }
+        }
+    }
+
+    // MARK: - Troubleshooting
+
+    /// Probed rather than watched: the firewall changes when a human flips it in System
+    /// Settings, so refreshing when the panel is opened is both sufficient and honest
+    /// about staleness. Probing spawns a process, hence off the main actor.
+    func refreshFirewall() {
+        Task.detached(priority: .utility) {
+            let state = FirewallState.probe()
+            await MainActor.run { self.firewall = state }
         }
     }
 }
