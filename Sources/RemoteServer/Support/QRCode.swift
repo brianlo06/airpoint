@@ -25,7 +25,6 @@ public enum QRCode {
         // A phone camera needs light modules to be *light*. Terminals vary, so we print
         // explicit background/foreground rather than relying on the user's theme.
         let white = "\u{1B}[47m"
-        let black = "\u{1B}[40m"
         let reset = "\u{1B}[0m"
 
         var lines: [String] = []

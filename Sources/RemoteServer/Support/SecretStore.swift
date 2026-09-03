@@ -88,7 +88,7 @@ public final class FileSecretStore: SecretStore {
     }
 
     public func deleteAll() throws {
-        try queue.sync {
+        queue.sync {
             let contents = (try? FileManager.default.contentsOfDirectory(at: directory,
                                                                          includingPropertiesForKeys: nil)) ?? []
             for url in contents where url.pathExtension == "secret" {
