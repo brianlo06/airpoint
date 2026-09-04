@@ -60,6 +60,7 @@ final class ClientConnection: RemoteSession {
 
     let id = UUID()
     private(set) var deviceName: String?
+    private(set) var deviceId: String?
     let peer: String
 
     init(connection: NWConnection, handler: RemoteSessionHandler, pairing: PairingService,
@@ -458,6 +459,7 @@ final class ClientConnection: RemoteSession {
             return
         }
         deviceName = hello.deviceName
+        deviceId = hello.deviceId
         Log.info("pairing request from '\(hello.deviceName)' (\(peer)) mode=\(hello.auth.mode.rawValue) client=\(hello.clientVersion)")
 
         // A reconnecting WebSocket does not reload the page, so a tab left open across an

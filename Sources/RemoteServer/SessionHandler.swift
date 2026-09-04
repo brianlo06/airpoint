@@ -41,6 +41,11 @@ public protocol RemoteSessionHandler: AnyObject {
     func sessionDidEnd(_ session: RemoteSession)
 }
 
+public extension RemoteSession {
+    /// A session type that predates device identity has none to offer.
+    var deviceId: String? { nil }
+}
+
 public extension RemoteSessionHandler {
     func permissions(for session: RemoteSession) -> [String: Bool] {
         ["ready": isReady(for: session)]
@@ -58,6 +63,11 @@ public protocol RemoteSession: AnyObject {
     var id: UUID { get }
     /// As the device reported it, already sanitised for display.
     var deviceName: String? { get }
+    /// The identity the device presented in `hello`: a hex string it generated once and
+    /// keeps, so it is the same across reconnects and across days. A host that wants to
+    /// remember somebody — a score, a preference — keys on this, never on `id`, which is
+    /// the connection's. Validated to 1–64 hex characters before it gets here.
+    var deviceId: String? { get }
     /// The peer address, for logging and rate limiting.
     var peer: String { get }
 
